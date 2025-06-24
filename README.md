@@ -1,6 +1,6 @@
 # MCP Gateway Proof of Concept
 
-This project implements an MCP (Model Context Protocol) Gateway that acts as a proxy/router for multiple MCP servers. The gateway itself is an MCP server that aggregates tools and manages sessions from multiple backend MCP servers.
+This project implements an MCP (Model Context Protocol) Gateway that acts as a proxy/router for multiple MCP servers. The gateway itself is an MCP server that aggregates tools and manages per-client sessions to multiple backend MCP servers.
 
 ## Project Structure
 
@@ -27,9 +27,17 @@ mcp-gateway-poc/
 
 ## Architecture
 
-- **MCP Gateway** (port 8080): Main server that acts as both MCP server and MCP client, aggregating tools from backend servers
+- **MCP Gateway** (port 8080): Main server that acts as both MCP server and MCP client, aggregating tools from backend servers with per-client session management
 - **Test MCP Server 1** (port 8081): Simple MCP server with echo and timestamp tools
 - **Test MCP Server 2** (port 8082): Simple MCP server with dice roll and magic 8-ball tools
+
+### Session Management
+
+The gateway implements **per-client backend connections**:
+- Each client that connects to the gateway gets dedicated connections to each backend server
+- Sessions are properly isolated between clients
+- Backend connections maintain their own sessions internally via the mcp-go client library
+- No manual session header management required
 
 ## Configuration (Hardcoded for PoC)
 
@@ -269,50 +277,38 @@ cd server2 && go mod tidy && cd ..
 rm -rf bin/
 ```
 
-## Current Implementation Status
+## Features
 
-### ✅ Completed Features
+### Core Gateway Functionality
+- **Tool Aggregation**: Automatically discovers and aggregates tools from multiple backend MCP servers
+- **Per-Client Session Management**: Each client gets dedicated backend connections with proper session isolation
+- **Request Routing**: Intelligently routes tool calls to appropriate backend servers based on tool name prefixes
+- **Session Isolation**: Multiple clients can connect simultaneously with completely separate backend sessions
+- **Comprehensive Logging**: Detailed logging of all HTTP requests, headers, and MCP session activity
 
-#### Test Servers
-- [x] **Server 1: Complete MCP streamable HTTP transport implementation** 
-- [x] **Server 1 tools**: `echo` (echoes back input) and `timestamp` (returns current time in ISO 8601)
-- [x] **Server 2: Complete MCP streamable HTTP transport implementation**
-- [x] **Server 2 tools**: `dice_roll` (random 1-6) and `8_ball` (magic 8 ball responses with 10 possible answers)
-- [x] Both servers support custom port flags (`-port=XXXX`)
-- [x] Proper error handling and parameter validation
+### MCP Protocol Support
+- **Full MCP Protocol Implementation**: Complete support for initialize, tools/list, and tools/call methods
+- **JSON-RPC 2.0 Compliance**: Proper JSON-RPC 2.0 request/response handling
+- **HTTP Session Headers**: Proper `mcp-session-id` header handling and forwarding
+- **Streamable HTTP Transport**: Uses mcp-go's streamable HTTP transport (not SSE)
 
-#### MCP Gateway
-- [x] **Gateway: Complete MCP streamable HTTP transport implementation**
-- [x] **Backend server connections**: Connects to Server1 (8081) and Server2 (8082) on startup
-- [x] **Tool aggregation**: Successfully aggregates 4 tools from backend servers + 1 gateway tool = 5 total
-- [x] **Session management**: Proper HTTP session handling with `mcp-session-id` headers
-- [x] **Tool routing**: Routes `server1-*` tools to Server1, `server2-*` tools to Server2
-- [x] **Complete MCP protocol implementation**: Initialize, tools/list, tools/call all working
-- [x] **Error handling**: Backend connection failures, tool routing errors, session validation
+### Tool Management
+- **Dynamic Tool Discovery**: Discovers tools from backend servers at startup
+- **Tool Prefixing**: Automatically prefixes backend tools (`server1-echo`, `server2-dice_roll`) to avoid conflicts
+- **Gateway Tools**: Provides its own tools (like `gateway_info`) alongside backend tools
+- **Parameter Validation**: Proper parameter validation and error handling for all tools
 
-#### Project Infrastructure
-- [x] **Build system**: `build.sh` script builds all three servers
-- [x] **Project structure**: Proper Go module structure with separate servers
-- [x] **Documentation**: Complete README with accurate testing commands
+### Error Handling & Reliability
+- **Backend Connection Management**: Handles backend server connections and failures gracefully
+- **Session Error Handling**: Proper error responses for missing or invalid sessions
+- **Tool Routing Errors**: Clear error messages for unknown tools or routing failures
+- **Timeout Management**: Configurable timeouts for backend server communications
 
-### 🚧 Potential Future Enhancements (Not Required for PoC)
-
-#### Advanced Gateway Features
-- [ ] Configuration file support (currently hardcoded ports work fine)
-- [ ] Health checking endpoints for backend servers
-- [ ] Load balancing strategies (not needed with 2 backends)
-- [ ] Advanced logging and metrics (basic logging works)
-- [ ] Fallback mechanisms for backend failures
-
-#### Additional MCP Features  
-- [ ] Resource endpoints (tools are the main focus)
-- [ ] Prompt templates (not core to gateway functionality)
-- [ ] Advanced session persistence (in-memory works for PoC)
-
-#### DevOps & Testing
-- [ ] Docker support (Go binaries work fine)
-- [ ] Integration tests (manual testing is comprehensive)
-- [ ] Configuration management (hardcoded works for PoC)
+### Development & Testing
+- **Build System**: Simple build script that compiles all servers
+- **Comprehensive Testing**: Complete curl-based testing examples for all functionality
+- **Detailed Documentation**: Full API documentation with working examples
+- **Logging & Debugging**: Extensive logging for troubleshooting and development
 
 ## Network Architecture
 
@@ -322,11 +318,12 @@ rm -rf bin/
 │                 │   :8080     │   (Port 8080)   │
 │                 │             │                 │
 │                 │             │ ✅ Tool Aggregation │
-│                 │             │ ✅ Session Mgmt    │
+│                 │             │ ✅ Per-Client Sessions │
 │                 │             │ ✅ Request Routing │
 └─────────────────┘             └─────────────────┘
                                          │
-                                         │ HTTP MCP
+                                         │ Dedicated Connections
+                                         │ Per Client
                                          ▼
                         ┌─────────────────────────────────┐
                         │         Backend Servers        │
@@ -349,13 +346,3 @@ This project uses the [mcp-go](https://github.com/mark3labs/mcp-go) library v0.3
 **Requirements:**
 - Go 1.23+ (required by mcp-go v0.32.0)
 - `github.com/mark3labs/mcp-go` library
-
-## Key Features Demonstrated
-
-1. **MCP Server & Client**: Gateway acts as both server (for clients) and client (to backends)  
-2. **Tool Aggregation**: All backend tools available through gateway with prefixed names
-3. **Session Management**: Proper HTTP session handling with `mcp-session-id` headers
-4. **Request Routing**: Intelligent routing based on tool name prefixes
-5. **Protocol Compliance**: Full MCP protocol implementation with JSON-RPC 2.0
-6. **Error Handling**: Graceful handling of backend failures and invalid requests
-7. **Concurrent Access**: Multiple clients can connect simultaneously with separate sessions

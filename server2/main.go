@@ -35,10 +35,40 @@ func main() {
 
 	streamableServer := server.NewStreamableHTTPServer(mcpServer)
 
+	// Wrap with logging middleware
+	loggingHandler := loggingMiddleware(streamableServer)
+
 	// Start the HTTP server with the streamable handler
-	if err := http.ListenAndServe(":"+*port, streamableServer); err != nil {
+	if err := http.ListenAndServe(":"+*port, loggingHandler); err != nil {
 		log.Fatalf("Server error: %v", err)
 	}
+}
+
+// loggingMiddleware adds comprehensive logging for all HTTP requests
+func loggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Log all headers for debugging
+		log.Printf("=== SERVER2 REQUEST ===")
+		log.Printf("Method: %s, URL: %s", r.Method, r.URL.String())
+		log.Printf("Headers:")
+		for name, values := range r.Header {
+			for _, value := range values {
+				log.Printf("  %s: %s", name, value)
+			}
+		}
+
+		// Specifically log session header
+		sessionID := r.Header.Get("mcp-session-id")
+		if sessionID != "" {
+			log.Printf("🔑 [SERVER2] MCP-SESSION-ID: %s", sessionID)
+		} else {
+			log.Printf("❌ [SERVER2] No mcp-session-id header found")
+		}
+
+		log.Printf("=======================")
+
+		next.ServeHTTP(w, r)
+	})
 }
 
 // setupTools configures the two tools for Server 2
@@ -74,19 +104,23 @@ var eightBallResponses = []string{
 
 // handleDiceRoll handles the dice roll tool
 func handleDiceRoll(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	log.Printf("🔧 [SERVER2] handleDiceRoll called")
 	// Seed the random number generator
 	rand.Seed(time.Now().UnixNano())
 
 	// Generate random number 1-6
 	roll := rand.Intn(6) + 1
 
+	log.Printf("✅ [SERVER2] Dice roll returning: %d", roll)
 	return mcp.NewToolResultText(fmt.Sprintf("🎲 You rolled: %d", roll)), nil
 }
 
 // handle8Ball handles the 8 ball tool
 func handle8Ball(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	log.Printf("🔧 [SERVER2] handle8Ball called")
 	question, err := req.RequireString("question")
 	if err != nil {
+		log.Printf("❌ [SERVER2] 8-ball error: %v", err)
 		return mcp.NewToolResultError(fmt.Sprintf("Missing required parameter 'question': %v", err)), nil
 	}
 
@@ -96,6 +130,7 @@ func handle8Ball(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRes
 	// Get random response
 	response := eightBallResponses[rand.Intn(len(eightBallResponses))]
 
+	log.Printf("✅ [SERVER2] 8-ball question: %s, answer: %s", question, response)
 	return mcp.NewToolResultText(fmt.Sprintf("🎱 Question: %s\nAnswer: %s", question, response)), nil
 }
 

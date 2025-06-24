@@ -34,10 +34,40 @@ func main() {
 
 	streamableServer := server.NewStreamableHTTPServer(mcpServer)
 
+	// Wrap with logging middleware
+	loggingHandler := loggingMiddleware(streamableServer)
+
 	// Start the HTTP server with the streamable handler
-	if err := http.ListenAndServe(":"+*port, streamableServer); err != nil {
+	if err := http.ListenAndServe(":"+*port, loggingHandler); err != nil {
 		log.Fatalf("Server error: %v", err)
 	}
+}
+
+// loggingMiddleware adds comprehensive logging for all HTTP requests
+func loggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Log all headers for debugging
+		log.Printf("=== SERVER1 REQUEST ===")
+		log.Printf("Method: %s, URL: %s", r.Method, r.URL.String())
+		log.Printf("Headers:")
+		for name, values := range r.Header {
+			for _, value := range values {
+				log.Printf("  %s: %s", name, value)
+			}
+		}
+
+		// Specifically log session header
+		sessionID := r.Header.Get("mcp-session-id")
+		if sessionID != "" {
+			log.Printf("🔑 [SERVER1] MCP-SESSION-ID: %s", sessionID)
+		} else {
+			log.Printf("❌ [SERVER1] No mcp-session-id header found")
+		}
+
+		log.Printf("=======================")
+
+		next.ServeHTTP(w, r)
+	})
 }
 
 // setupTools configures the two tools for Server 1
@@ -59,16 +89,21 @@ func setupTools(s *server.MCPServer) {
 
 // handleEcho handles the echo tool
 func handleEcho(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	log.Printf("🔧 [SERVER1] handleEcho called")
 	message, err := req.RequireString("message")
 	if err != nil {
+		log.Printf("❌ [SERVER1] Echo error: %v", err)
 		return mcp.NewToolResultError(fmt.Sprintf("Missing required parameter 'message': %v", err)), nil
 	}
 
+	log.Printf("✅ [SERVER1] Echo returning: %s", message)
 	return mcp.NewToolResultText(message), nil
 }
 
 // handleTimestamp handles the timestamp tool
 func handleTimestamp(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	log.Printf("🔧 [SERVER1] handleTimestamp called")
 	timestamp := time.Now().Format(time.RFC3339)
+	log.Printf("✅ [SERVER1] Timestamp returning: %s", timestamp)
 	return mcp.NewToolResultText(timestamp), nil
 }
