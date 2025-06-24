@@ -66,6 +66,10 @@ func loggingMiddleware(next http.Handler) http.Handler {
 
 		log.Printf("=======================")
 
+		// Add HTTP headers to context for tool handlers to access
+		ctx := context.WithValue(r.Context(), "http_headers", map[string][]string(r.Header))
+		r = r.WithContext(ctx)
+
 		next.ServeHTTP(w, r)
 	})
 }
@@ -85,6 +89,11 @@ func setupTools(s *server.MCPServer) {
 	s.AddTool(mcp.NewTool("timestamp",
 		mcp.WithDescription("Returns the current timestamp in ISO 8601 format"),
 	), handleTimestamp)
+
+	// Echo headers tool - returns all headers from the request
+	s.AddTool(mcp.NewTool("echo_headers",
+		mcp.WithDescription("Returns all headers received by the server"),
+	), handleEchoHeaders)
 }
 
 // handleEcho handles the echo tool
@@ -106,4 +115,35 @@ func handleTimestamp(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToo
 	timestamp := time.Now().Format(time.RFC3339)
 	log.Printf("✅ [SERVER1] Timestamp returning: %s", timestamp)
 	return mcp.NewToolResultText(timestamp), nil
+}
+
+// handleEchoHeaders handles the echo_headers tool
+func handleEchoHeaders(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	log.Printf("🔧 [SERVER1] handleEchoHeaders called")
+
+	// Extract HTTP headers from context
+	headers := make(map[string]interface{})
+	headers["server"] = "server1"
+	headers["timestamp"] = time.Now().Format(time.RFC3339)
+
+	// Try to get the HTTP request from context - this depends on the server implementation
+	// For now, we'll use a custom context key that we need to set in the middleware
+	if httpHeaders, ok := ctx.Value("http_headers").(map[string][]string); ok {
+		for name, values := range httpHeaders {
+			if len(values) > 0 {
+				headers[name] = values[0] // Take first value for simplicity
+			}
+		}
+	} else {
+		// If no headers are available, show the context keys for debugging
+		headers["context_debug"] = "No HTTP headers found in context"
+	}
+
+	result := fmt.Sprintf("Server1 Headers:\n")
+	for key, value := range headers {
+		result += fmt.Sprintf("  %s: %v\n", key, value)
+	}
+
+	log.Printf("✅ [SERVER1] EchoHeaders returning headers")
+	return mcp.NewToolResultText(result), nil
 }

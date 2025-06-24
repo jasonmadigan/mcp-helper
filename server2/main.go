@@ -67,6 +67,10 @@ func loggingMiddleware(next http.Handler) http.Handler {
 
 		log.Printf("=======================")
 
+		// Add HTTP headers to context for tool handlers to access
+		ctx := context.WithValue(r.Context(), "http_headers", map[string][]string(r.Header))
+		r = r.WithContext(ctx)
+
 		next.ServeHTTP(w, r)
 	})
 }
@@ -86,6 +90,11 @@ func setupTools(s *server.MCPServer) {
 			mcp.Required(),
 		),
 	), handle8Ball)
+
+	// Echo headers tool - returns all headers from the request
+	s.AddTool(mcp.NewTool("echo_headers",
+		mcp.WithDescription("Returns all headers received by the server"),
+	), handleEchoHeaders)
 }
 
 // 8 ball responses
@@ -134,4 +143,33 @@ func handle8Ball(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolRes
 	return mcp.NewToolResultText(fmt.Sprintf("🎱 Question: %s\nAnswer: %s", question, response)), nil
 }
 
-// TODO: Add tool handlers
+// handleEchoHeaders handles the echo_headers tool
+func handleEchoHeaders(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	log.Printf("🔧 [SERVER2] handleEchoHeaders called")
+
+	// Extract HTTP headers from context
+	headers := make(map[string]interface{})
+	headers["server"] = "server2"
+	headers["timestamp"] = time.Now().Format(time.RFC3339)
+
+	// Try to get the HTTP request from context - this depends on the server implementation
+	// For now, we'll use a custom context key that we need to set in the middleware
+	if httpHeaders, ok := ctx.Value("http_headers").(map[string][]string); ok {
+		for name, values := range httpHeaders {
+			if len(values) > 0 {
+				headers[name] = values[0] // Take first value for simplicity
+			}
+		}
+	} else {
+		// If no headers are available, show the context keys for debugging
+		headers["context_debug"] = "No HTTP headers found in context"
+	}
+
+	result := fmt.Sprintf("Server2 Headers:\n")
+	for key, value := range headers {
+		result += fmt.Sprintf("  %s: %v\n", key, value)
+	}
+
+	log.Printf("✅ [SERVER2] EchoHeaders returning headers")
+	return mcp.NewToolResultText(result), nil
+}

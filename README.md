@@ -10,6 +10,7 @@ mcp-gateway-poc/
 ├── go.mod               # Dependencies for gateway
 ├── go.sum               # Go module checksums
 ├── build.sh             # Build script for all servers
+├── e2e_test.go          # End-to-end test suite
 ├── bin/                 # Built binaries
 │   ├── gateway          # MCP Gateway binary
 │   ├── server1          # Test Server 1 binary
@@ -28,8 +29,8 @@ mcp-gateway-poc/
 ## Architecture
 
 - **MCP Gateway** (port 8080): Main server that acts as both MCP server and MCP client, aggregating tools from backend servers with per-client session management
-- **Test MCP Server 1** (port 8081): Simple MCP server with echo and timestamp tools
-- **Test MCP Server 2** (port 8082): Simple MCP server with dice roll and magic 8-ball tools
+- **Test MCP Server 1** (port 8081): Simple MCP server with echo, timestamp, and echo_headers tools
+- **Test MCP Server 2** (port 8082): Simple MCP server with dice roll, magic 8-ball, and echo_headers tools
 
 ### Session Management
 
@@ -123,12 +124,14 @@ curl -X POST http://localhost:8080 \
     "params": {}
   }'
 
-# Shows 5 aggregated tools:
+# Shows 7 aggregated tools:
 # - gateway_info (gateway's own tool)
 # - server1-echo (from server1)
-# - server1-timestamp (from server1)  
+# - server1-timestamp (from server1)
+# - server1-echo_headers (from server1)
 # - server2-8_ball (from server2)
 # - server2-dice_roll (from server2)
+# - server2-echo_headers (from server2)
 ```
 
 ### 3. Call Tools (Routes to Backend Servers)
@@ -209,6 +212,39 @@ curl -X POST http://localhost:8080 \
   }'
 ```
 
+## Automated End-to-End Testing
+
+The project includes a comprehensive e2e test that automatically verifies all functionality:
+
+```bash
+# Run the complete end-to-end test
+go test -v -run TestE2E
+
+# The test will:
+# 1. Start all three servers (server1, server2, gateway)
+# 2. Wait for servers to be ready  
+# 3. Create two separate MCP client sessions
+# 4. Verify tool aggregation works correctly
+# 5. Test the echo_headers tool on both servers
+# 6. Verify session isolation between clients
+# 7. Confirm all session IDs are unique and properly managed
+# 8. Clean up and stop all servers
+```
+
+### What the E2E Test Validates
+
+- **Server Startup**: All three servers start in the correct order and become ready
+- **Tool Aggregation**: Gateway correctly discovers and aggregates tools from backend servers
+- **Session Management**: Each client gets unique session IDs at all levels:
+  - Client-to-Gateway session IDs are unique per client
+  - Gateway-to-Backend session IDs are unique per client
+  - No session ID reuse between different clients
+- **Request Routing**: Tool calls are properly routed to backend servers
+- **Header Handling**: HTTP headers (including session IDs) are correctly processed and forwarded
+- **Error Handling**: Proper error responses for invalid requests
+
+The e2e test eliminates the need for manual testing via multiple browser windows and provides confidence that the session isolation is working correctly.
+
 ## Available Tools
 
 ### MCP Gateway (Port 8080) - Aggregated Tools
@@ -218,15 +254,21 @@ curl -X POST http://localhost:8080 \
   - Parameter: `message` (string, required) - Message to echo back
 - **`server1-timestamp`** - [Routed to Server1] Returns the current timestamp in ISO 8601 format
   - No parameters required
+- **`server1-echo_headers`** - [Routed to Server1] Returns HTTP headers from the request
+  - No parameters required
 - **`server2-dice_roll`** - [Routed to Server2] Roll a dice and return a random number from 1 to 6
   - No parameters required
 - **`server2-8_ball`** - [Routed to Server2] Ask the magic 8 ball a question and get a random response
   - Parameter: `question` (string, required) - Your question for the magic 8 ball
+- **`server2-echo_headers`** - [Routed to Server2] Returns HTTP headers from the request
+  - No parameters required
 
 ### Test Server 1 (Port 8081) - Direct Access
 - **`echo`** - Echoes back the input message
   - Parameter: `message` (string, required) - Message to echo back
 - **`timestamp`** - Returns the current timestamp in ISO 8601 format
+  - No parameters required
+- **`echo_headers`** - Returns HTTP headers from the request
   - No parameters required
 
 ### Test Server 2 (Port 8082) - Direct Access
@@ -234,6 +276,8 @@ curl -X POST http://localhost:8080 \
   - No parameters required
 - **`8_ball`** - Ask the magic 8 ball a question and get a random response
   - Parameter: `question` (string, required) - Your question for the magic 8 ball
+- **`echo_headers`** - Returns HTTP headers from the request
+  - No parameters required
 
 ## Building
 
@@ -272,6 +316,9 @@ cd server2 && go mod init server2 && cd ..
 go mod tidy
 cd server1 && go mod tidy && cd ..
 cd server2 && go mod tidy && cd ..
+
+# Run end-to-end tests
+go test -v -run TestE2E
 
 # Clean build artifacts
 rm -rf bin/
