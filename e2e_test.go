@@ -4,9 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net/http"
-	"os"
-	"os/exec"
 	"regexp"
 	"strings"
 	"testing"
@@ -19,127 +16,25 @@ import (
 
 const (
 	testGatewayURL = "http://localhost:8080"
-	testServer1URL = "http://localhost:8081"
-	testServer2URL = "http://localhost:8082"
 )
 
 // TestE2E is the main end-to-end test
+// Assumes servers are already running on ports 8080, 8081, 8082
 func TestE2E(t *testing.T) {
-	log.Println("🚀 Starting E2E Test")
+	log.Println("🚀 Starting E2E Test (servers assumed to be running)")
 
-	// Step 1: Start all three servers
-	servers := startServers(t)
-	defer stopServers(servers)
-
-	// Step 2: Wait for servers to be ready
-	waitForServers(t)
-
-	// Step 3: Test first MCP client session
+	// Test first MCP client session
 	log.Println("📋 Testing first MCP client session...")
 	session1Results := testMCPClient(t, 1)
 
-	// Step 4: Test second MCP client session
+	// Test second MCP client session
 	log.Println("📋 Testing second MCP client session...")
 	session2Results := testMCPClient(t, 2)
 
-	// Step 5: Verify session isolation
+	// Verify session isolation
 	verifySessionIsolation(t, session1Results, session2Results)
 
 	log.Println("✅ E2E Test completed successfully!")
-}
-
-// ServerProcess holds process information for a server
-type ServerProcess struct {
-	Name    string
-	Process *exec.Cmd
-}
-
-// startServers starts all three servers and returns their process information
-func startServers(t *testing.T) []ServerProcess {
-	log.Println("🔧 Starting servers...")
-
-	var servers []ServerProcess
-
-	// Start server1
-	log.Println("Starting server1...")
-	server1Cmd := exec.Command("go", "run", "main.go", "-port=8081")
-	server1Cmd.Dir = "server1"
-	server1Cmd.Stdout = os.Stdout
-	server1Cmd.Stderr = os.Stderr
-	if err := server1Cmd.Start(); err != nil {
-		t.Fatalf("Failed to start server1: %v", err)
-	}
-	servers = append(servers, ServerProcess{"server1", server1Cmd})
-
-	// Start server2
-	log.Println("Starting server2...")
-	server2Cmd := exec.Command("go", "run", "main.go", "-port=8082")
-	server2Cmd.Dir = "server2"
-	server2Cmd.Stdout = os.Stdout
-	server2Cmd.Stderr = os.Stderr
-	if err := server2Cmd.Start(); err != nil {
-		t.Fatalf("Failed to start server2: %v", err)
-	}
-	servers = append(servers, ServerProcess{"server2", server2Cmd})
-
-	// Wait for upstream servers to be ready before starting gateway
-	log.Println("Waiting for upstream servers to be ready...")
-	waitForServer(t, testServer1URL, "server1 (before gateway)")
-	waitForServer(t, testServer2URL, "server2 (before gateway)")
-
-	// Start gateway
-	log.Println("Starting gateway...")
-	gatewayCmd := exec.Command("go", "run", "main.go", "-port=8080")
-	gatewayCmd.Stdout = os.Stdout
-	gatewayCmd.Stderr = os.Stderr
-	if err := gatewayCmd.Start(); err != nil {
-		t.Fatalf("Failed to start gateway: %v", err)
-	}
-	servers = append(servers, ServerProcess{"gateway", gatewayCmd})
-
-	return servers
-}
-
-// stopServers stops all servers
-func stopServers(servers []ServerProcess) {
-	log.Println("🛑 Stopping servers...")
-	for _, server := range servers {
-		if server.Process != nil {
-			log.Printf("Stopping %s...", server.Name)
-			server.Process.Process.Kill()
-		}
-	}
-}
-
-// waitForServers waits for all servers to be ready
-func waitForServers(t *testing.T) {
-	log.Println("⏳ Waiting for servers to be ready...")
-
-	// Wait for server1
-	waitForServer(t, testServer1URL, "server1")
-
-	// Wait for server2
-	waitForServer(t, testServer2URL, "server2")
-
-	// Wait for gateway (this should be last since it depends on the others)
-	waitForServer(t, testGatewayURL, "gateway")
-
-	log.Println("✅ All servers are ready!")
-}
-
-// waitForServer waits for a specific server to be ready
-func waitForServer(t *testing.T, url, name string) {
-	for i := 0; i < 30; i++ { // Wait up to 30 seconds
-		resp, err := http.Get(url)
-		if err == nil {
-			resp.Body.Close()
-			log.Printf("✅ %s is ready", name)
-			return
-		}
-		log.Printf("⏳ Waiting for %s... (%d/30)", name, i+1)
-		time.Sleep(1 * time.Second)
-	}
-	t.Fatalf("❌ %s failed to start within 30 seconds", name)
 }
 
 // SessionResults holds the results from testing a MCP client session
