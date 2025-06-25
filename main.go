@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -16,10 +17,18 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
+// getEnv gets an environment variable or returns a default value
+func getEnv(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
+}
+
 // Backend server configuration
-const (
-	server1URL = "http://localhost:8081"
-	server2URL = "http://localhost:8082"
+var (
+	server1URL = getEnv("SERVER1_URL", "http://localhost:8081")
+	server2URL = getEnv("SERVER2_URL", "http://localhost:8082")
 )
 
 // ClientBackendConnections holds the backend client connections for a specific client session

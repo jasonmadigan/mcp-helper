@@ -1,0 +1,36 @@
+# Git files
+.git
+.gitignore
+
+# Documentation
+README.md
+chatlog_*.md
+
+# Test files
+*_test.go
+e2e_test.go
+
+# Build artifacts
+bin/
+*.exe
+
+# Scripts
+build.sh
+run_e2e_tests.sh
+start.sh
+docker-build.sh
+
+# Docker files (not needed in containers)
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db 

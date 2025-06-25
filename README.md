@@ -218,7 +218,7 @@ The project includes a comprehensive e2e test that automatically verifies all fu
 
 ```bash
 # Run the complete end-to-end test
-go test -v -run TestE2E
+./run_e2e_tests.sh
 
 # The test will:
 # 1. Start all three servers (server1, server2, gateway)
