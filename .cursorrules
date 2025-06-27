@@ -1,0 +1,122 @@
+# MCP Gateway Proof of Concept - Cursor Rules
+
+## Project Overview
+This is an MCP (Model Context Protocol) Gateway that acts as a proxy/router for multiple MCP servers. The gateway aggregates tools from backend MCP servers and manages per-client sessions with proper isolation.
+
+## Architecture
+- **MCP Gateway** (main.go, port 8080): Aggregates tools and routes requests to backend servers
+- **Test Server 1** (server1/main.go, port 8081): Simple MCP server with echo, timestamp, echo_headers tools  
+- **Test Server 2** (server2/main.go, port 8082): Simple MCP server with dice_roll, 8_ball, echo_headers tools
+- **Per-Client Session Management**: Each client gets dedicated backend connections with proper session isolation
+- **Tool Prefixing**: Backend tools are prefixed (server1-echo, server2-dice_roll) to avoid conflicts
+
+## Key Dependencies
+- **mcp-go v0.32.0**: Core MCP protocol library from https://github.com/mark3labs/mcp-go
+- **Go 1.23+**: Required by mcp-go v0.32.0
+- **Transport**: HTTP with streamable HTTP MCP protocol (not SSE)
+
+## Critical MCP-Go Examples (Keep in Context)
+These examples have been essential for solving implementation problems:
+
+1. **Simple Client Example**: https://raw.githubusercontent.com/mark3labs/mcp-go/refs/heads/main/examples/simple_client/main.go
+   - Shows proper client initialization and transport setup
+   - Demonstrates Initialize request structure and capabilities
+   - Example of ListTools and CallTool usage
+
+2. **Everything Server Example**: https://raw.githubusercontent.com/mark3labs/mcp-go/refs/heads/main/examples/everything/main.go  
+   - Complete server implementation with all capabilities
+   - Tool definition patterns and handlers
+   - Hook usage and lifecycle management
+
+3. **MCP-Go README**: https://raw.githubusercontent.com/mark3labs/mcp-go/refs/heads/main/README.md
+   - API documentation and usage patterns
+   - Transport options and configuration
+
+## Code Patterns & Conventions
+
+### MCP Protocol Implementation
+- Always use `mcp.LATEST_PROTOCOL_VERSION` for initialization
+- Create proper `mcp.Implementation` structs for client info
+- Use `server.NewMCPServer()` with appropriate capabilities
+- Handle context timeouts (typically 10-30 seconds)
+
+### Session Management
+- Use `server.ClientSessionFromContext(ctx)` to extract session info
+- Store per-client backend connections in `clientConnections` map
+- Create dedicated backend clients for each gateway client session
+- Use RWMutex for thread-safe access to connection maps
+
+### Tool Registration
+- Use `mcp.NewTool()` with proper descriptions and parameters
+- Register tools with `mcpServer.AddTool(tool, handler)`
+- Tool handlers must match signature: `func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error)`
+- Use `req.RequireString()`, `req.RequireInt()` etc for parameter extraction
+- Return `mcp.NewToolResultText()` or `mcp.NewToolResultError()` for results
+
+### HTTP Transport
+- Use `transport.NewStreamableHTTP(url)` for HTTP connections
+- Wrap servers with `server.NewStreamableHTTPServer(mcpServer)`
+- Add comprehensive logging middleware for debugging
+- Extract session IDs from `mcp-session-id` headers
+
+### Error Handling
+- Always check errors from mcp-go operations
+- Use context with timeouts for all backend calls
+- Return descriptive error messages via `mcp.NewToolResultError()`
+- Log errors with proper context (client session, tool name, etc.)
+
+### Logging Patterns
+- Use structured logging with emojis for visual parsing: 🔧 🔑 ✅ ❌ 🆕 🔗 🚀
+- Log all HTTP requests and headers in middleware
+- Track session creation and routing decisions
+- Include client session IDs in all relevant log messages
+
+## Environment Configuration
+- Support environment variables for backend URLs: `SERVER1_URL`, `SERVER2_URL`
+- Use `getEnv(key, defaultValue)` helper for configuration
+- Default to localhost URLs for development
+
+## Testing Patterns
+- End-to-end testing with actual server startup/shutdown
+- Test session isolation between multiple clients
+- Verify tool aggregation and routing
+- Use curl commands for manual testing with proper MCP protocol
+
+## Docker Containerization
+- Multi-stage builds with Go 1.23-alpine
+- Non-root user execution for security
+- Proper port exposure (8080, 8081, 8082)
+- Environment variable support for container networking
+- Image names: quay.io/dmartin/mcp-gateway-poc[-server1|-server2]
+
+## Development Workflow
+1. Start backend servers first (server1, server2)
+2. Then start gateway (connects to backends on startup)
+3. Use proper MCP protocol for testing (initialize -> tools/list -> tools/call)
+4. Check logs for session management and routing behavior
+
+## Common Debugging
+- Check `mcp-session-id` headers in logs
+- Verify backend server connections in gateway startup
+- Ensure proper tool prefixing in aggregated tool list
+- Validate JSON-RPC 2.0 request/response format
+- Monitor per-client connection creation and reuse
+
+## File Structure
+```
+main.go              # MCP Gateway server
+server1/main.go      # Test Server 1
+server2/main.go      # Test Server 2  
+e2e_test.go          # End-to-end tests
+Dockerfile           # Gateway container
+server1/Dockerfile   # Server1 container
+server2/Dockerfile   # Server2 container
+docker-build.sh      # Build all images
+```
+
+## Key Implementation Details
+- Gateway maintains startup clients only for initial tool discovery, then discards them
+- Each gateway client gets dedicated backend connections with proper session isolation
+- Tool routing uses string prefixes to determine target backend
+- Backend clients maintain their own sessions internally via mcp-go library
+- Comprehensive middleware logging for debugging session flow 
