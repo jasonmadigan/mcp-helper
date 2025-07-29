@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  envoy:
+    container_name: envoy
+    build: 
+      context: ./envoy-filter
+      dockerfile: Dockerfile
+    image: mcp-envoy-filter
+    ports:
+      - "8080:8080"  # Main proxy port
+      - "9901:9901"  # Admin interface
+    volumes:
+      - ./envoy.yaml:/etc/envoy/envoy.yaml:ro
+    command: ["envoy", "-c", "/etc/envoy/envoy.yaml", "--log-level", "info"]
+    environment:
+      - ENVOY_DYNAMIC_MODULES_SEARCH_PATH=/usr/local/lib
+    depends_on:
+      - gateway
+
+  gateway:
+    container_name: gateway
+    build: .
+    image: quay.io/dmartin/mcp-gateway-poc
+    environment:
+      - SERVER1_URL=http://server1:8081
+      - SERVER2_URL=http://server2:8082
+    depends_on:
+      - server1
+      - server2
+
+  server1:
+    container_name: server1
+    build: ./server1
+    image: quay.io/dmartin/mcp-gateway-poc-server1
+
+  server2:
+    container_name: server2
+    build: ./server2
+    image: quay.io/dmartin/mcp-gateway-poc-server2 

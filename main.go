@@ -2,12 +2,12 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
-	"strings"
 	"sync"
 	"time"
 
@@ -33,10 +33,20 @@ var (
 
 // ClientBackendConnections holds the backend client connections for a specific client session
 type ClientBackendConnections struct {
-	ClientSessionID string
-	Server1Client   *client.Client
-	Server2Client   *client.Client
-	CreatedAt       time.Time
+	ClientSessionID  string
+	Server1Client    *client.Client
+	Server2Client    *client.Client
+	Server1SessionID string // Tracked session ID for server1
+	Server2SessionID string // Tracked session ID for server2
+	CreatedAt        time.Time
+}
+
+// SessionMapping holds the mapping between gateway session and backend sessions
+type SessionMapping struct {
+	GatewaySessionID string
+	Server1SessionID string
+	Server2SessionID string
+	CreatedAt        time.Time
 }
 
 // MCPGateway represents the main MCP server that acts as both server and client
@@ -51,6 +61,10 @@ type MCPGateway struct {
 	// Session management - maps client session ID to backend client connections
 	clientConnections map[string]*ClientBackendConnections
 	connectionsLock   sync.RWMutex
+
+	// Session ID mapping - maps gateway session ID to backend session IDs
+	sessionMappings map[string]*SessionMapping
+	sessionLock     sync.RWMutex
 
 	// Startup clients (used only for initial tool discovery, then discarded)
 	startupServer1Client *client.Client
@@ -80,7 +94,16 @@ func main() {
 	// Wrap the streamable server with logging middleware
 	loggingHandler := gateway.loggingMiddleware(streamableServer)
 
-	if err := http.ListenAndServe(":"+*port, loggingHandler); err != nil {
+	// Create a multiplexer to handle different routes
+	mux := http.NewServeMux()
+
+	// Handle session lookup endpoint
+	mux.HandleFunc("/session-lookup", gateway.handleSessionLookup)
+
+	// Handle all other requests as MCP requests
+	mux.Handle("/", loggingHandler)
+
+	if err := http.ListenAndServe(":"+*port, mux); err != nil {
 		log.Fatalf("Server error: %v", err)
 	}
 }
@@ -108,8 +131,50 @@ func (g *MCPGateway) loggingMiddleware(next http.Handler) http.Handler {
 
 		log.Printf("======================")
 
-		next.ServeHTTP(w, r)
+		// Check if this is an initialize request
+		if r.Method == "POST" && r.URL.Path == "/" {
+			// Wrap the response writer to capture the session ID
+			wrappedWriter := &sessionCapturingWriter{
+				ResponseWriter: w,
+				gateway:        g,
+			}
+			next.ServeHTTP(wrappedWriter, r)
+		} else {
+			next.ServeHTTP(w, r)
+		}
 	})
+}
+
+// sessionCapturingWriter wraps http.ResponseWriter to capture session IDs from initialize responses
+type sessionCapturingWriter struct {
+	http.ResponseWriter
+	gateway *MCPGateway
+}
+
+func (w *sessionCapturingWriter) Header() http.Header {
+	return w.ResponseWriter.Header()
+}
+
+func (w *sessionCapturingWriter) Write(data []byte) (int, error) {
+	// Check if a new session ID was set in the response headers
+	if sessionID := w.Header().Get("mcp-session-id"); sessionID != "" {
+		// This is likely a response to an initialize request
+		go func() {
+			// Create session mapping asynchronously
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			if err := w.gateway.handleInitialization(ctx, sessionID); err != nil {
+				log.Printf("❌ Failed to create session mapping for %s: %v", sessionID, err)
+			}
+		}()
+	}
+
+	return w.ResponseWriter.Write(data)
+}
+
+func (w *sessionCapturingWriter) WriteHeader(statusCode int) {
+	w.ResponseWriter.WriteHeader(statusCode)
 }
 
 // NewMCPGateway creates a new MCP Gateway instance
@@ -117,6 +182,7 @@ func NewMCPGateway() *MCPGateway {
 	gateway := &MCPGateway{
 		aggregatedTools:   make([]mcp.Tool, 0),
 		clientConnections: make(map[string]*ClientBackendConnections),
+		sessionMappings:   make(map[string]*SessionMapping),
 	}
 
 	// Create MCP server with tool capabilities
@@ -138,6 +204,115 @@ func (g *MCPGateway) setupHandlers() {
 	g.mcpServer.AddTool(mcp.NewTool("gateway_info",
 		mcp.WithDescription("Get information about the MCP Gateway"),
 	), g.handleGatewayInfo)
+}
+
+// handleInitialization creates backend sessions when a client initializes
+func (g *MCPGateway) handleInitialization(ctx context.Context, gatewaySessionID string) error {
+	log.Printf("🆕 Creating REAL backend sessions for gateway session: %s", gatewaySessionID)
+
+	// Create real backend connections
+	connections, err := g.createBackendConnectionsForSession(ctx, gatewaySessionID)
+	if err != nil {
+		return fmt.Errorf("failed to create backend connections: %w", err)
+	}
+
+	// Use the REAL session IDs from the connections we just created
+	server1SessionID := connections.Server1SessionID
+	server2SessionID := connections.Server2SessionID
+
+	// Store REAL session mapping
+	mapping := &SessionMapping{
+		GatewaySessionID: gatewaySessionID,
+		Server1SessionID: server1SessionID,
+		Server2SessionID: server2SessionID,
+		CreatedAt:        time.Now(),
+	}
+
+	g.sessionLock.Lock()
+	g.sessionMappings[gatewaySessionID] = mapping
+	g.sessionLock.Unlock()
+
+	log.Printf("✅ REAL session mapping created: %s -> server1:%s, server2:%s",
+		gatewaySessionID, server1SessionID, server2SessionID)
+
+	return nil
+}
+
+// createBackendConnectionsForSession creates and initializes real backend connections
+func (g *MCPGateway) createBackendConnectionsForSession(ctx context.Context, gatewaySessionID string) (*ClientBackendConnections, error) {
+	log.Printf("🔗 Creating REAL backend connections for session: %s", gatewaySessionID)
+
+	connections := &ClientBackendConnections{
+		ClientSessionID: gatewaySessionID,
+		CreatedAt:       time.Now(),
+	}
+
+	// Create and initialize server1 connection
+	if err := g.createClientServer1Connection(ctx, connections); err != nil {
+		return nil, fmt.Errorf("failed to create server1 connection: %w", err)
+	}
+
+	// Create and initialize server2 connection
+	if err := g.createClientServer2Connection(ctx, connections); err != nil {
+		return nil, fmt.Errorf("failed to create server2 connection: %w", err)
+	}
+
+	// Store the connections for later use
+	g.connectionsLock.Lock()
+	g.clientConnections[gatewaySessionID] = connections
+	g.connectionsLock.Unlock()
+
+	return connections, nil
+}
+
+// getSessionMapping returns the session mapping for a gateway session ID
+func (g *MCPGateway) getSessionMapping(gatewaySessionID string) (*SessionMapping, bool) {
+	g.sessionLock.RLock()
+	defer g.sessionLock.RUnlock()
+	mapping, exists := g.sessionMappings[gatewaySessionID]
+	return mapping, exists
+}
+
+// SessionLookupResponse represents the response for session lookup
+type SessionLookupResponse struct {
+	Server1SessionID string `json:"server1_session_id"`
+	Server2SessionID string `json:"server2_session_id"`
+	Found            bool   `json:"found"`
+}
+
+// handleSessionLookup provides an HTTP endpoint for Envoy to lookup session mappings
+func (g *MCPGateway) handleSessionLookup(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	gatewaySessionID := r.Header.Get("x-gateway-session-id")
+	if gatewaySessionID == "" {
+		http.Error(w, "Missing x-gateway-session-id header", http.StatusBadRequest)
+		return
+	}
+
+	mapping, found := g.getSessionMapping(gatewaySessionID)
+
+	response := SessionLookupResponse{
+		Found: found,
+	}
+
+	if found {
+		response.Server1SessionID = mapping.Server1SessionID
+		response.Server2SessionID = mapping.Server2SessionID
+		log.Printf("📋 Session lookup: %s -> server1:%s, server2:%s",
+			gatewaySessionID, mapping.Server1SessionID, mapping.Server2SessionID)
+	} else {
+		log.Printf("❌ Session lookup failed: %s not found", gatewaySessionID)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("❌ Failed to encode session lookup response: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	}
 }
 
 // initializeBackends connects to backend servers for initial tool discovery only
@@ -275,48 +450,14 @@ func (g *MCPGateway) registerAggregatedTools() {
 	log.Printf("Registered %d aggregated tools with MCP server", len(g.aggregatedTools))
 }
 
-// getOrCreateClientConnections gets existing backend connections or creates new ones for a client
-func (g *MCPGateway) getOrCreateClientConnections(ctx context.Context, clientSessionID string) (*ClientBackendConnections, error) {
-	g.connectionsLock.RLock()
-	existing, exists := g.clientConnections[clientSessionID]
-	g.connectionsLock.RUnlock()
-
-	if exists {
-		log.Printf("✅ Using existing backend connections for client %s", clientSessionID)
-		return existing, nil
-	}
-
-	log.Printf("🆕 Creating new backend connections for client %s", clientSessionID)
-
-	// Create new backend connections for this client
-	connections := &ClientBackendConnections{
-		ClientSessionID: clientSessionID,
-		CreatedAt:       time.Now(),
-	}
-
-	// Initialize server1 connection for this client
-	if err := g.createClientServer1Connection(ctx, connections); err != nil {
-		return nil, fmt.Errorf("failed to create server1 connection for client %s: %w", clientSessionID, err)
-	}
-
-	// Initialize server2 connection for this client
-	if err := g.createClientServer2Connection(ctx, connections); err != nil {
-		return nil, fmt.Errorf("failed to create server2 connection for client %s: %w", clientSessionID, err)
-	}
-
-	// Store the connections
-	g.connectionsLock.Lock()
-	g.clientConnections[clientSessionID] = connections
-	g.connectionsLock.Unlock()
-
-	log.Printf("✅ Created backend connections for client %s", clientSessionID)
-
-	return connections, nil
+func (g *MCPGateway) routeToolCall(_ context.Context, toolName string, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	log.Printf("❌ Tool call reached gateway unexpectedly: %s (should be routed by Envoy)", toolName)
+	return mcp.NewToolResultError(fmt.Sprintf("Tool call %s reached gateway - this should be handled by Envoy routing", toolName)), nil
 }
 
 // createClientServer1Connection creates a dedicated server1 connection for a client
 func (g *MCPGateway) createClientServer1Connection(ctx context.Context, connections *ClientBackendConnections) error {
-	log.Printf("🔗 Creating dedicated server1 connection for client %s", connections.ClientSessionID)
+	log.Printf("🔗 Creating REAL dedicated server1 connection for client %s", connections.ClientSessionID)
 
 	// Create HTTP transport for server1
 	httpTransport, err := transport.NewStreamableHTTP(server1URL)
@@ -345,14 +486,20 @@ func (g *MCPGateway) createClientServer1Connection(ctx context.Context, connecti
 		return fmt.Errorf("failed to initialize server1: %w", err)
 	}
 
-	log.Printf("✅ Client %s connected to server1: %s (session maintained by client)",
-		connections.ClientSessionID, serverInfo.ServerInfo.Name)
+	// Extract the REAL session ID from the initialized client
+	connections.Server1SessionID = connections.Server1Client.GetSessionId()
+	if connections.Server1SessionID == "" {
+		return fmt.Errorf("failed to get real session ID from server1 - session ID is empty")
+	}
+
+	log.Printf("✅ Client %s connected to server1: %s with REAL session ID: %s",
+		connections.ClientSessionID, serverInfo.ServerInfo.Name, connections.Server1SessionID)
 	return nil
 }
 
 // createClientServer2Connection creates a dedicated server2 connection for a client
 func (g *MCPGateway) createClientServer2Connection(ctx context.Context, connections *ClientBackendConnections) error {
-	log.Printf("🔗 Creating dedicated server2 connection for client %s", connections.ClientSessionID)
+	log.Printf("🔗 Creating REAL dedicated server2 connection for client %s", connections.ClientSessionID)
 
 	// Create HTTP transport for server2
 	httpTransport, err := transport.NewStreamableHTTP(server2URL)
@@ -381,66 +528,15 @@ func (g *MCPGateway) createClientServer2Connection(ctx context.Context, connecti
 		return fmt.Errorf("failed to initialize server2: %w", err)
 	}
 
-	log.Printf("✅ Client %s connected to server2: %s (session maintained by client)",
-		connections.ClientSessionID, serverInfo.ServerInfo.Name)
+	// Extract the REAL session ID from the initialized client
+	connections.Server2SessionID = connections.Server2Client.GetSessionId()
+	if connections.Server2SessionID == "" {
+		return fmt.Errorf("failed to get real session ID from server2 - session ID is empty")
+	}
+
+	log.Printf("✅ Client %s connected to server2: %s with REAL session ID: %s",
+		connections.ClientSessionID, serverInfo.ServerInfo.Name, connections.Server2SessionID)
 	return nil
-}
-
-// routeToolCall routes tool calls to the appropriate backend server using per-client connections
-func (g *MCPGateway) routeToolCall(ctx context.Context, toolName string, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	log.Printf("🔧 Tool call started: %s", toolName)
-
-	// Extract client session from context
-	session := server.ClientSessionFromContext(ctx)
-	if session == nil {
-		log.Printf("❌ No client session found in context")
-		return mcp.NewToolResultError("No active session"), nil
-	}
-
-	clientSessionID := session.SessionID()
-	log.Printf("🔑 Client session ID: %s", clientSessionID)
-
-	// Get or create backend connections for this client
-	connections, err := g.getOrCreateClientConnections(ctx, clientSessionID)
-	if err != nil {
-		log.Printf("❌ Failed to get client connections: %v", err)
-		return mcp.NewToolResultError(fmt.Sprintf("Connection error: %v", err)), nil
-	}
-
-	// Parse tool name to determine backend
-	var backendClient *client.Client
-	var originalToolName string
-
-	if strings.HasPrefix(toolName, "server1-") {
-		backendClient = connections.Server1Client
-		originalToolName = strings.TrimPrefix(toolName, "server1-")
-	} else if strings.HasPrefix(toolName, "server2-") {
-		backendClient = connections.Server2Client
-		originalToolName = strings.TrimPrefix(toolName, "server2-")
-	} else {
-		return mcp.NewToolResultError(fmt.Sprintf("Unknown tool prefix for %s", toolName)), nil
-	}
-
-	// Create call request with original tool name
-	backendReq := mcp.CallToolRequest{}
-	backendReq.Params.Name = originalToolName
-	backendReq.Params.Arguments = req.Params.Arguments
-
-	// Call backend server (client maintains its own session internally)
-	callCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	log.Printf("🚀 Routing %s -> %s (client: %s, session maintained by backend client)",
-		toolName, originalToolName, clientSessionID)
-
-	result, err := backendClient.CallTool(callCtx, backendReq)
-	if err != nil {
-		log.Printf("❌ Backend call failed for %s: %v", toolName, err)
-		return mcp.NewToolResultError(fmt.Sprintf("Backend call failed: %v", err)), nil
-	}
-
-	log.Printf("✅ Tool call %s completed successfully", toolName)
-	return result, nil
 }
 
 // handleGatewayInfo handles the gateway_info tool
@@ -460,7 +556,8 @@ func (g *MCPGateway) handleGatewayInfo(ctx context.Context, req mcp.CallToolRequ
 		"aggregated_tools":   toolCount,
 		"active_connections": connectionCount,
 		"status":             "running",
-		"session_management": "per-client backend connections (sessions maintained by clients)",
+		"session_management": "per-client backend connections",
+		"routing":            "handled by Envoy dynamic module",
 	}
 
 	return mcp.NewToolResultText(fmt.Sprintf("Gateway Info: %+v", info)), nil

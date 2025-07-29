@@ -1,0 +1,53 @@
+
+# MCP Gateway PoC Architecture
+
+This is a proof of concept for an MCP (Model Context Protocol) Gateway with Rust-based Envoy dynamic module.
+
+## Development Rules
+
+**🚫 NO PLACEHOLDERS**: Always implement real, working functionality. No placeholder code, dummy values, or "TODO" implementations unless explicitly requested by the user. Be persistent and complete all implementations.
+
+## Architecture Flow
+```
+Client -> Envoy (Rust Dynamic Module) -> Gateway -> Server1/Server2
+```
+
+## Core Components
+
+### Envoy Filter ([envoy-filter/](mdc:envoy-filter/))
+- **Language**: Rust compiled to dynamic module (.so file)
+- **Framework**: envoy-proxy-dynamic-modules-rust-sdk from Envoy git repo
+- **Purpose**: Intercepts and logs MCP protocol traffic, performs session ID mapping
+- **Build**: Use cargo-zigbuild for cross-compilation (x86_64 and aarch64)
+- **Base image**: envoyproxy/envoy-dev:73fe00fc139fd5053f4c4a5d66569cc254449896
+- **HTTP Callouts**: Makes requests to Gateway's `/session-lookup` endpoint for session mapping
+
+### MCP Gateway ([main.go](mdc:main.go))
+- **Framework**: mcp-go v0.36.0 (latest with GetSessionId() method)
+- **Transport**: HTTP with streamable HTTP MCP protocol
+- **Session Management**: Per-client backend connections with real session ID extraction
+- **Tool Aggregation**: Prefixes backend tools (server1-echo, server2-dice_roll)
+- **Session Mapping**: Maps gateway session IDs to real backend session IDs via `/session-lookup` endpoint
+
+### Session ID Management
+- **Gateway**: Issues gateway session IDs to clients
+- **Backend Initialization**: Creates real connections to Server1/Server2, extracts actual session IDs using `client.GetSessionId()`
+- **Session Mapping**: Stores gateway → (server1, server2) session ID mappings
+- **Envoy Integration**: Filter queries `/session-lookup` endpoint and rewrites `mcp-session-id` headers
+- **Real Sessions**: No placeholders - uses actual session IDs returned by backend servers
+
+### Test Servers
+- **Server1** ([server1/main.go](mdc:server1/main.go)): echo, timestamp, echo_headers tools
+- **Server2** ([server2/main.go](mdc:server2/main.go)): dice_roll, 8_ball, echo_headers tools
+
+## Routing via Envoy
+- **Default**: All traffic -> Gateway (aggregated tools)
+- **Tool-based routing**: 
+  - `x-mcp-server: server1` -> Direct to Server1 (for server1-* tools)
+  - `x-mcp-server: server2` -> Direct to Server2 (for server2-* tools)
+- **Session ID rewriting**: Envoy filter replaces gateway session IDs with backend-specific session IDs
+
+## Critical Examples
+- https://raw.githubusercontent.com/mark3labs/mcp-go/refs/heads/main/examples/simple_client/main.go
+- https://raw.githubusercontent.com/mark3labs/mcp-go/refs/heads/main/examples/everything/main.go
+

@@ -1,0 +1,109 @@
+admin:
+  address:
+    socket_address:
+      address: 0.0.0.0
+      port_value: 9901
+
+static_resources:
+  listeners:
+  - name: listener_0
+    address:
+      socket_address:
+        address: 0.0.0.0
+        port_value: 8080
+    filter_chains:
+    - filters:
+      - name: envoy.filters.network.http_connection_manager
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+          stat_prefix: ingress_http
+          route_config:
+            name: local_route
+            virtual_hosts:
+            - name: local_service
+              domains: ["*"]
+              routes:
+              # Route to server1 if x-mcp-server header is "server1"
+              - match:
+                  prefix: "/"
+                  headers:
+                  - name: "x-mcp-server"
+                    string_match:
+                      exact: "server1"
+                route:
+                  cluster: server1_cluster
+              # Route to server2 if x-mcp-server header is "server2"
+              - match:
+                  prefix: "/"
+                  headers:
+                  - name: "x-mcp-server"
+                    string_match:
+                      exact: "server2"
+                route:
+                  cluster: server2_cluster
+              # Default route to gateway
+              - match:
+                  prefix: "/"
+                route:
+                  cluster: gateway_cluster
+          http_filters:
+          # Add the MCP logging dynamic module filter
+          - name: dynamic_modules/mcp_filter
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.dynamic_modules.v3.DynamicModuleFilter
+              dynamic_module_config:
+                name: mcp_envoy_filter
+              filter_name: mcp_logging
+              filter_config:
+                "@type": "type.googleapis.com/google.protobuf.StringValue"
+                value: |
+                  {
+                    "debug": true
+                  }
+          # Router filter (must be last)
+          - name: envoy.filters.http.router
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+
+  clusters:
+  - name: gateway_cluster
+    connect_timeout: 30s
+    type: LOGICAL_DNS
+    lb_policy: ROUND_ROBIN
+    load_assignment:
+      cluster_name: gateway_cluster
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: gateway
+                port_value: 8080
+
+  - name: server1_cluster
+    connect_timeout: 30s
+    type: LOGICAL_DNS
+    lb_policy: ROUND_ROBIN
+    load_assignment:
+      cluster_name: server1_cluster
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: server1
+                port_value: 8081
+
+  - name: server2_cluster
+    connect_timeout: 30s
+    type: LOGICAL_DNS
+    lb_policy: ROUND_ROBIN
+    load_assignment:
+      cluster_name: server2_cluster
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: server2
+                port_value: 8082 
