@@ -16,6 +16,9 @@ import (
 )
 
 func main() {
+	// TODO: Move this entire ext-proc server into the MCP Gateway main.go file at ../main.go
+	//       Contain all golang code (MCP Gateway and the ext-proc filter) in the one file.
+
 	log.Println("Starting ext-proc filter")
 
 	// grpc server init
