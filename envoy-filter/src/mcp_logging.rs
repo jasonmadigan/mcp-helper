@@ -290,6 +290,13 @@ impl<EHF: EnvoyHttpFilter> HttpFilter<EHF> for Filter {
     fn on_response_headers(&mut self, envoy_filter: &mut EHF, end_of_stream: bool) -> abi::envoy_dynamic_module_type_on_http_filter_response_headers_status {
         eprintln!("[MCP_FILTER] Response headers received (end_of_stream={})", end_of_stream);
         
+        // TODO: Handle 404 from backend MCP server tool call response.
+        //       Remove sessions from store.
+        //
+        //       Context:
+        //       https://modelcontextprotocol.io/specification/2025-06-18/basic/transports#session-management
+        //       "The server MAY terminate the session at any time, after which it MUST respond to requests containing that session ID with HTTP 404 Not Found"
+
         // Check if we have a backend session ID that needs to be mapped back
         let headers = envoy_filter.get_response_headers();
         let backend_session_id = find_header_value(&headers, "mcp-session-id");

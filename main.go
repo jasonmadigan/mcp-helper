@@ -248,14 +248,20 @@ func (g *MCPGateway) createBackendConnectionsForSession(ctx context.Context, gat
 	}
 
 	// Create and initialize server1 connection
-	if err := g.createClientServer1Connection(ctx, connections); err != nil {
+	client1, sessionID, err := g.createClientBackendConnection(ctx, connections.ClientSessionID, "server1", server1URL)
+	if err != nil {
 		return nil, fmt.Errorf("failed to create server1 connection: %w", err)
 	}
+	connections.Server1Client = client1
+	connections.Server1SessionID = sessionID
 
 	// Create and initialize server2 connection
-	if err := g.createClientServer2Connection(ctx, connections); err != nil {
+	client2, sessionID, err := g.createClientBackendConnection(ctx, connections.ClientSessionID, "server1", server1URL)
+	if err != nil {
 		return nil, fmt.Errorf("failed to create server2 connection: %w", err)
 	}
+	connections.Server2Client = client2
+	connections.Server2SessionID = sessionID
 
 	// Store the connections for later use
 	g.connectionsLock.Lock()
@@ -455,18 +461,18 @@ func (g *MCPGateway) routeToolCall(_ context.Context, toolName string, _ mcp.Cal
 	return mcp.NewToolResultError(fmt.Sprintf("Tool call %s reached gateway - this should be handled by Envoy routing", toolName)), nil
 }
 
-// createClientServer1Connection creates a dedicated server1 connection for a client
-func (g *MCPGateway) createClientServer1Connection(ctx context.Context, connections *ClientBackendConnections) error {
-	log.Printf("🔗 Creating REAL dedicated server1 connection for client %s", connections.ClientSessionID)
+// createClientBackendConnection creates and initializes a client connection to a backend server
+func (g *MCPGateway) createClientBackendConnection(ctx context.Context, clientSessionID string, serverName string, serverURL string) (*client.Client, string, error) {
+	log.Printf("🔗 Creating REAL dedicated %s connection for client %s", serverName, clientSessionID)
 
-	// Create HTTP transport for server1
-	httpTransport, err := transport.NewStreamableHTTP(server1URL)
+	// Create HTTP transport
+	httpTransport, err := transport.NewStreamableHTTP(serverURL)
 	if err != nil {
-		return fmt.Errorf("failed to create HTTP transport for server1: %w", err)
+		return nil, "", fmt.Errorf("failed to create HTTP transport for %s: %w", serverName, err)
 	}
 
 	// Create client
-	connections.Server1Client = client.NewClient(httpTransport)
+	mcpClient := client.NewClient(httpTransport)
 
 	// Initialize with timeout
 	initCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -476,67 +482,26 @@ func (g *MCPGateway) createClientServer1Connection(ctx context.Context, connecti
 	initRequest := mcp.InitializeRequest{}
 	initRequest.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
 	initRequest.Params.ClientInfo = mcp.Implementation{
-		Name:    fmt.Sprintf("MCP Gateway (Client %s)", connections.ClientSessionID),
+		Name:    fmt.Sprintf("MCP Gateway (Client %s)", clientSessionID),
 		Version: "1.0.0",
 	}
 	initRequest.Params.Capabilities = mcp.ClientCapabilities{}
 
-	serverInfo, err := connections.Server1Client.Initialize(initCtx, initRequest)
+	serverInfo, err := mcpClient.Initialize(initCtx, initRequest)
 	if err != nil {
-		return fmt.Errorf("failed to initialize server1: %w", err)
+		return nil, "", fmt.Errorf("failed to initialize %s: %w", serverName, err)
 	}
 
 	// Extract the REAL session ID from the initialized client
-	connections.Server1SessionID = connections.Server1Client.GetSessionId()
-	if connections.Server1SessionID == "" {
-		return fmt.Errorf("failed to get real session ID from server1 - session ID is empty")
+	sessionID := mcpClient.GetSessionId()
+	if sessionID == "" {
+		return nil, "", fmt.Errorf("failed to get real session ID from %s - session ID is empty", serverName)
 	}
 
-	log.Printf("✅ Client %s connected to server1: %s with REAL session ID: %s",
-		connections.ClientSessionID, serverInfo.ServerInfo.Name, connections.Server1SessionID)
-	return nil
-}
+	log.Printf("✅ Client %s connected to %s: %s with REAL session ID: %s",
+		clientSessionID, serverName, serverInfo.ServerInfo.Name, sessionID)
 
-// createClientServer2Connection creates a dedicated server2 connection for a client
-func (g *MCPGateway) createClientServer2Connection(ctx context.Context, connections *ClientBackendConnections) error {
-	log.Printf("🔗 Creating REAL dedicated server2 connection for client %s", connections.ClientSessionID)
-
-	// Create HTTP transport for server2
-	httpTransport, err := transport.NewStreamableHTTP(server2URL)
-	if err != nil {
-		return fmt.Errorf("failed to create HTTP transport for server2: %w", err)
-	}
-
-	// Create client
-	connections.Server2Client = client.NewClient(httpTransport)
-
-	// Initialize with timeout
-	initCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-
-	// Initialize the connection
-	initRequest := mcp.InitializeRequest{}
-	initRequest.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
-	initRequest.Params.ClientInfo = mcp.Implementation{
-		Name:    fmt.Sprintf("MCP Gateway (Client %s)", connections.ClientSessionID),
-		Version: "1.0.0",
-	}
-	initRequest.Params.Capabilities = mcp.ClientCapabilities{}
-
-	serverInfo, err := connections.Server2Client.Initialize(initCtx, initRequest)
-	if err != nil {
-		return fmt.Errorf("failed to initialize server2: %w", err)
-	}
-
-	// Extract the REAL session ID from the initialized client
-	connections.Server2SessionID = connections.Server2Client.GetSessionId()
-	if connections.Server2SessionID == "" {
-		return fmt.Errorf("failed to get real session ID from server2 - session ID is empty")
-	}
-
-	log.Printf("✅ Client %s connected to server2: %s with REAL session ID: %s",
-		connections.ClientSessionID, serverInfo.ServerInfo.Name, connections.Server2SessionID)
-	return nil
+	return mcpClient, sessionID, nil
 }
 
 // handleGatewayInfo handles the gateway_info tool
