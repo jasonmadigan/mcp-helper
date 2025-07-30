@@ -208,23 +208,19 @@ func (g *MCPGateway) setupHandlers() {
 
 // handleInitialization creates backend sessions when a client initializes
 func (g *MCPGateway) handleInitialization(ctx context.Context, gatewaySessionID string) error {
-	log.Printf("🆕 Creating REAL backend sessions for gateway session: %s", gatewaySessionID)
+	log.Printf("🆕 Creating backend sessions for gateway session: %s", gatewaySessionID)
 
-	// Create real backend connections
+	// Create backend connections
 	connections, err := g.createBackendConnectionsForSession(ctx, gatewaySessionID)
 	if err != nil {
 		return fmt.Errorf("failed to create backend connections: %w", err)
 	}
 
-	// Use the REAL session IDs from the connections we just created
-	server1SessionID := connections.Server1SessionID
-	server2SessionID := connections.Server2SessionID
-
-	// Store REAL session mapping
+	// Store session mapping
 	mapping := &SessionMapping{
 		GatewaySessionID: gatewaySessionID,
-		Server1SessionID: server1SessionID,
-		Server2SessionID: server2SessionID,
+		Server1SessionID: connections.Server1SessionID,
+		Server2SessionID: connections.Server2SessionID,
 		CreatedAt:        time.Now(),
 	}
 
@@ -232,15 +228,15 @@ func (g *MCPGateway) handleInitialization(ctx context.Context, gatewaySessionID 
 	g.sessionMappings[gatewaySessionID] = mapping
 	g.sessionLock.Unlock()
 
-	log.Printf("✅ REAL session mapping created: %s -> server1:%s, server2:%s",
-		gatewaySessionID, server1SessionID, server2SessionID)
+	log.Printf("✅ session mapping created: %s -> server1:%s, server2:%s",
+		gatewaySessionID, connections.Server1SessionID, connections.Server2SessionID)
 
 	return nil
 }
 
-// createBackendConnectionsForSession creates and initializes real backend connections
+// createBackendConnectionsForSession creates and initializes backend connections
 func (g *MCPGateway) createBackendConnectionsForSession(ctx context.Context, gatewaySessionID string) (*ClientBackendConnections, error) {
-	log.Printf("🔗 Creating REAL backend connections for session: %s", gatewaySessionID)
+	log.Printf("🔗 Creating backend connections for session: %s", gatewaySessionID)
 
 	connections := &ClientBackendConnections{
 		ClientSessionID: gatewaySessionID,
@@ -463,7 +459,7 @@ func (g *MCPGateway) routeToolCall(_ context.Context, toolName string, _ mcp.Cal
 
 // createClientBackendConnection creates and initializes a client connection to a backend server
 func (g *MCPGateway) createClientBackendConnection(ctx context.Context, clientSessionID string, serverName string, serverURL string) (*client.Client, string, error) {
-	log.Printf("🔗 Creating REAL dedicated %s connection for client %s", serverName, clientSessionID)
+	log.Printf("🔗 Creating dedicated %s connection for client %s", serverName, clientSessionID)
 
 	// Create HTTP transport
 	httpTransport, err := transport.NewStreamableHTTP(serverURL)
@@ -492,13 +488,13 @@ func (g *MCPGateway) createClientBackendConnection(ctx context.Context, clientSe
 		return nil, "", fmt.Errorf("failed to initialize %s: %w", serverName, err)
 	}
 
-	// Extract the REAL session ID from the initialized client
+	// Extract the session ID from the initialized client
 	sessionID := mcpClient.GetSessionId()
 	if sessionID == "" {
-		return nil, "", fmt.Errorf("failed to get real session ID from %s - session ID is empty", serverName)
+		return nil, "", fmt.Errorf("failed to get session ID from %s - session ID is empty", serverName)
 	}
 
-	log.Printf("✅ Client %s connected to %s: %s with REAL session ID: %s",
+	log.Printf("✅ Client %s connected to %s: %s with session ID: %s",
 		clientSessionID, serverName, serverInfo.ServerInfo.Name, sessionID)
 
 	return mcpClient, sessionID, nil
