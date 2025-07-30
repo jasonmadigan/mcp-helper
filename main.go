@@ -75,7 +75,7 @@ func main() {
 	var port = flag.String("port", "8080", "Port to listen on")
 	flag.Parse()
 
-	log.Println("Starting MCP Gateway...")
+	log.Println("Starting MCP Helper...")
 
 	gateway := NewMCPGateway()
 
@@ -85,7 +85,7 @@ func main() {
 	}
 
 	// Start the gateway server
-	log.Printf("MCP Gateway listening on port %s", *port)
+	log.Printf("MCP Helper listening on port %s", *port)
 	log.Printf("MCP endpoint: http://localhost:%s", *port)
 	log.Printf("Backend servers: %s, %s", server1URL, server2URL)
 
@@ -244,20 +244,20 @@ func (g *MCPGateway) createBackendConnectionsForSession(ctx context.Context, gat
 	}
 
 	// Create and initialize server1 connection
-	client1, sessionID, err := g.createClientBackendConnection(ctx, connections.ClientSessionID, "server1", server1URL)
+	client1, sessionID1, err := g.createClientBackendConnection(ctx, connections.ClientSessionID, "server1", server1URL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create server1 connection: %w", err)
 	}
 	connections.Server1Client = client1
-	connections.Server1SessionID = sessionID
+	connections.Server1SessionID = sessionID1
 
 	// Create and initialize server2 connection
-	client2, sessionID, err := g.createClientBackendConnection(ctx, connections.ClientSessionID, "server1", server1URL)
+	client2, sessionID2, err := g.createClientBackendConnection(ctx, connections.ClientSessionID, "server2", server2URL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create server2 connection: %w", err)
 	}
 	connections.Server2Client = client2
-	connections.Server2SessionID = sessionID
+	connections.Server2SessionID = sessionID2
 
 	// Store the connections for later use
 	g.connectionsLock.Lock()

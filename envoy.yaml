@@ -47,6 +47,21 @@ static_resources:
                 route:
                   cluster: gateway_cluster
           http_filters:
+          - name: envoy.filters.http.ext_proc
+            typed_config:
+              "@type": "type.googleapis.com/envoy.extensions.filters.http.ext_proc.v3.ExternalProcessor"
+              failure_mode_allow: false
+              message_timeout: 10s
+              processing_mode:
+                request_header_mode: "SEND"
+                response_header_mode: "SEND"
+                request_body_mode: "BUFFERED"
+                response_body_mode: "BUFFERED"
+                request_trailer_mode: "SKIP"
+                response_trailer_mode: "SKIP"
+              grpc_service:
+                envoy_grpc:
+                  cluster_name: ext-proc
           # Add the MCP logging dynamic module filter
           - name: dynamic_modules/mcp_filter
             typed_config:
@@ -79,7 +94,20 @@ static_resources:
               socket_address:
                 address: gateway
                 port_value: 8080
-
+  - name: ext-proc
+    connect_timeout: 5s
+    type: strict_dns
+    lb_policy: round_robin
+    http2_protocol_options: {}
+    load_assignment:
+      cluster_name: ext-proc
+      endpoints:
+        - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    address: ext-proc
+                    port_value: 50051
   - name: server1_cluster
     connect_timeout: 30s
     type: LOGICAL_DNS
