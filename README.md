@@ -10,8 +10,10 @@ docker-compose up --build
 
 Available at: http://localhost:8080
 
-## Architecture
+Run mcp-inspector:
 
+```bash
+DANGEROUSLY_OMIT_AUTH=true npx @modelcontextprotocol/inspector
 ```
-Client -> Envoy (Rust Dynamic Module) -> Gateway -> Server1/Server2
-```
+
+Open mcp-inspector at http://127.0.0.1:6274/?transport=streamable-http&serverUrl=http://localhost:8080#tools

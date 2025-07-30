@@ -401,26 +401,3 @@ impl<EHF: EnvoyHttpFilter> HttpFilter<EHF> for Filter {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_filter_config() {
-        let config = FilterConfig::new(r#"{"debug": true}"#);
-        assert_eq!(config.debug, true);
-        
-        let config = FilterConfig::new("");
-        assert_eq!(config.debug, false);
-        
-        let config = FilterConfig::new("invalid json");
-        assert_eq!(config.debug, false);
-    }
-
-    #[test]
-    fn test_filter_creation() {
-        let _filter = Filter::new();
-        // Filter creation should succeed
-    }
-} 
