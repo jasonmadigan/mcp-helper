@@ -62,19 +62,6 @@ static_resources:
               grpc_service:
                 envoy_grpc:
                   cluster_name: ext-proc
-          # Add the MCP logging dynamic module filter
-          - name: dynamic_modules/mcp_filter
-            typed_config:
-              "@type": type.googleapis.com/envoy.extensions.filters.http.dynamic_modules.v3.DynamicModuleFilter
-              dynamic_module_config:
-                name: mcp_envoy_filter
-              filter_name: mcp_logging
-              filter_config:
-                "@type": "type.googleapis.com/google.protobuf.StringValue"
-                value: |
-                  {
-                    "debug": true
-                  }
           # Router filter (must be last)
           - name: envoy.filters.http.router
             typed_config:

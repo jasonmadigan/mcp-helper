@@ -61,8 +61,6 @@ fn find_header_value(headers: &[(EnvoyBuffer, EnvoyBuffer)], name: &str) -> Stri
 /// - JSON parsing adds computational overhead
 /// - Route cache clearing forces re-evaluation (small cost)
 pub struct Filter {
-    // Store the session lookup response while processing
-    pending_session_lookup: Option<SessionLookupResponse>,
     // Store the routing decision while waiting for session lookup
     pending_route_decision: Option<String>,
     // Store the stripped tool name for tools/call
@@ -74,7 +72,6 @@ pub struct Filter {
 impl Filter {
     pub fn new() -> Self {
         Filter {
-            pending_session_lookup: None,
             pending_route_decision: None,
             stripped_tool_name: None,
             current_request_body: None,

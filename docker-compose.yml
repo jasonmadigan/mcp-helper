@@ -3,18 +3,13 @@ version: '3.8'
 services:
   envoy:
     container_name: envoy
-    build: 
-      context: ./envoy-filter
-      dockerfile: Dockerfile
-    image: mcp-envoy-filter
+    image: envoyproxy/envoy:v1.31-latest
     ports:
       - "8080:8080"  # Main proxy port
       - "9901:9901"  # Admin interface
     volumes:
       - ./envoy.yaml:/etc/envoy/envoy.yaml:ro
     command: ["envoy", "-c", "/etc/envoy/envoy.yaml", "--log-level", "info"]
-    environment:
-      - ENVOY_DYNAMIC_MODULES_SEARCH_PATH=/usr/local/lib
     depends_on:
       - gateway
 
