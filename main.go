@@ -21,6 +21,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/reflection"
 )
 
 // getEnv gets an environment variable or returns a default value
@@ -127,6 +128,9 @@ func main() {
 
 	s := grpc.NewServer()
 	extProcPb.RegisterExternalProcessorServer(s, extProc.NewServer(false, helper))
+
+	// Register reflection service on gRPC server (for debugging only)
+	reflection.Register(s)
 
 	log.Println("Starting ext-proc gRPC server on :50051")
 
