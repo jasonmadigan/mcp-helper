@@ -13,7 +13,7 @@ import (
 	"syscall"
 	"time"
 
-	"mcp-gateway-poc/ext-proc/handlers"
+	extProc "mcp-gateway-poc/ext-proc"
 
 	extProcPb "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 	"github.com/mark3labs/mcp-go/client"
@@ -126,7 +126,7 @@ func main() {
 	}
 
 	s := grpc.NewServer()
-	extProcPb.RegisterExternalProcessorServer(s, handlers.NewServer(false, gateway))
+	extProcPb.RegisterExternalProcessorServer(s, extProc.NewServer(false, gateway))
 
 	log.Println("Starting ext-proc gRPC server on :50051")
 
@@ -310,7 +310,7 @@ func (g *MCPHelper) createBackendConnectionsForSession(ctx context.Context, gate
 }
 
 // GetSessionMapping returns the session mapping for a gateway session ID (implements SessionMapper interface)
-func (g *MCPHelper) GetSessionMapping(gatewaySessionID string) (*handlers.SessionMapping, bool) {
+func (g *MCPHelper) GetSessionMapping(gatewaySessionID string) (*extProc.SessionMapping, bool) {
 	g.sessionLock.RLock()
 	defer g.sessionLock.RUnlock()
 
@@ -319,8 +319,8 @@ func (g *MCPHelper) GetSessionMapping(gatewaySessionID string) (*handlers.Sessio
 		return nil, false
 	}
 
-	// Convert to handlers.SessionMapping
-	return &handlers.SessionMapping{
+	// Convert to extProc.SessionMapping
+	return &extProc.SessionMapping{
 		GatewaySessionID: mapping.GatewaySessionID,
 		Server1SessionID: mapping.Server1SessionID,
 		Server2SessionID: mapping.Server2SessionID,
