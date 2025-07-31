@@ -20,14 +20,15 @@ import (
 	"context"
 	"crypto/tls"
 
+	"mcp-gateway-poc/internal/runnable"
+	tlsutil "mcp-gateway-poc/internal/tls"
+	"mcp-gateway-poc/pkg/bbr/handlers"
+
 	extProcPb "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 	"github.com/go-logr/logr"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
-	"sigs.k8s.io/gateway-api-inference-extension/internal/runnable"
-	tlsutil "sigs.k8s.io/gateway-api-inference-extension/internal/tls"
-	"sigs.k8s.io/gateway-api-inference-extension/pkg/bbr/handlers"
 )
 
 // ExtProcServerRunner provides methods to manage an external process server.

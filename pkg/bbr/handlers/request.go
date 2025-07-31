@@ -23,10 +23,9 @@ import (
 
 	basepb "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	eppb "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
-	extProcPb "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 )
 
-const toolHeader = "x-mcp-tool"
+const toolHeader = "X-MCP-TOOLNAME"
 
 // MCPToolCall represents an MCP tool call request structure
 type MCPToolCall struct {
@@ -187,13 +186,13 @@ func (s *Server) createEmptyBodyResponse() []*eppb.ProcessingResponse {
 }
 
 func addStreamedBodyResponse(responses []*eppb.ProcessingResponse, requestBodyBytes []byte) []*eppb.ProcessingResponse {
-	return append(responses, &extProcPb.ProcessingResponse{
-		Response: &extProcPb.ProcessingResponse_RequestBody{
-			RequestBody: &extProcPb.BodyResponse{
-				Response: &extProcPb.CommonResponse{
-					BodyMutation: &extProcPb.BodyMutation{
-						Mutation: &extProcPb.BodyMutation_StreamedResponse{
-							StreamedResponse: &extProcPb.StreamedBodyResponse{
+	return append(responses, &eppb.ProcessingResponse{
+		Response: &eppb.ProcessingResponse_RequestBody{
+			RequestBody: &eppb.BodyResponse{
+				Response: &eppb.CommonResponse{
+					BodyMutation: &eppb.BodyMutation{
+						Mutation: &eppb.BodyMutation_StreamedResponse{
+							StreamedResponse: &eppb.StreamedBodyResponse{
 								Body:        requestBodyBytes,
 								EndOfStream: true,
 							},

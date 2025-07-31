@@ -8,6 +8,10 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY main.go ./
+COPY health.go ./
+COPY pkg/bbr ./pkg/bbr
+COPY internal ./internal
+
 
 # Build for Linux AMD64
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o gateway main.go

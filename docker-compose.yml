@@ -29,13 +29,6 @@ services:
       - server1
       - server2
 
-  ext-proc:
-    container_name: ext-proc
-    build:
-      context: ./ext-proc
-    expose:
-    - "50051"
-
   server1:
     container_name: server1
     build: ./server1

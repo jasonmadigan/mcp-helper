@@ -6,15 +6,22 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"sync"
+	"syscall"
 	"time"
 
+	"mcp-gateway-poc/pkg/bbr/handlers"
+
+	extProcPb "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+	"google.golang.org/grpc"
 )
 
 // getEnv gets an environment variable or returns a default value
@@ -75,7 +82,7 @@ func main() {
 	var port = flag.String("port", "8080", "Port to listen on")
 	flag.Parse()
 
-	log.Println("Starting MCP Helper...")
+	log.Println("Starting MCP Gateway...")
 
 	gateway := NewMCPGateway()
 
@@ -84,28 +91,67 @@ func main() {
 		log.Fatalf("Failed to initialize backends: %v", err)
 	}
 
-	// Start the gateway server
-	log.Printf("MCP Helper listening on port %s", *port)
-	log.Printf("MCP endpoint: http://localhost:%s", *port)
-	log.Printf("Backend servers: %s, %s", server1URL, server2URL)
+	// Setup signal handling for graceful shutdown
+	var gracefulStop = make(chan os.Signal, 1)
+	signal.Notify(gracefulStop, syscall.SIGTERM, syscall.SIGINT)
 
-	streamableServer := server.NewStreamableHTTPServer(gateway.mcpServer)
+	// Start the HTTP MCP Gateway server in a goroutine
+	go func() {
+		log.Printf("MCP Gateway listening on port %s", *port)
+		log.Printf("MCP endpoint: http://localhost:%s", *port)
+		log.Printf("Backend servers: %s, %s", server1URL, server2URL)
 
-	// Wrap the streamable server with logging middleware
-	loggingHandler := gateway.loggingMiddleware(streamableServer)
+		streamableServer := server.NewStreamableHTTPServer(gateway.mcpServer)
 
-	// Create a multiplexer to handle different routes
-	mux := http.NewServeMux()
+		// Wrap the streamable server with logging middleware
+		loggingHandler := gateway.loggingMiddleware(streamableServer)
 
-	// Handle session lookup endpoint
-	mux.HandleFunc("/session-lookup", gateway.handleSessionLookup)
+		// Create a multiplexer to handle different routes
+		mux := http.NewServeMux()
 
-	// Handle all other requests as MCP requests
-	mux.Handle("/", loggingHandler)
+		// Handle session lookup endpoint
+		mux.HandleFunc("/session-lookup", gateway.handleSessionLookup)
 
-	if err := http.ListenAndServe(":"+*port, mux); err != nil {
-		log.Fatalf("Server error: %v", err)
+		// Handle all other requests as MCP requests
+		mux.Handle("/", loggingHandler)
+
+		if err := http.ListenAndServe(":"+*port, mux); err != nil {
+			log.Fatalf("HTTP Server error: %v", err)
+		}
+	}()
+
+	// Start the gRPC ext-proc filter server
+	log.Println("Starting ext-proc filter")
+
+	// grpc server init
+	lis, err := net.Listen("tcp", ":50051")
+	if err != nil {
+		log.Fatalf("failed to listen: %v", err)
 	}
+
+	s := grpc.NewServer()
+	extProcPb.RegisterExternalProcessorServer(s, handlers.NewServer(false))
+
+	log.Println("Starting ext-proc gRPC server on :50051")
+
+	// Start gRPC server in a goroutine
+	go func() {
+		if err := s.Serve(lis); err != nil {
+			log.Fatalf("gRPC Server error: %v", err)
+		}
+	}()
+
+	// Wait for shutdown signal
+	sig := <-gracefulStop
+	log.Printf("Caught signal: %+v", sig)
+	log.Println("Shutting down servers...")
+
+	// Graceful shutdown
+	s.GracefulStop()
+	log.Println("Servers stopped")
+
+	log.Println("Wait for 1 second to finish processing")
+	time.Sleep(1 * time.Second)
 }
 
 // loggingMiddleware adds comprehensive logging for all HTTP requests
