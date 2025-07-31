@@ -8,7 +8,7 @@ MCP Helper with Go [Envoy external processor](https://www.envoyproxy.io/docs/env
 docker-compose up --build
 ```
 
-A streamable HTTP MCP server will now be available at: http://localhost:8080/sse
+A streamable HTTP MCP server will now be available at: http://localhost:8080/
 
 ## Test with MCP Inspector
 
@@ -17,11 +17,9 @@ A streamable HTTP MCP server will now be available at: http://localhost:8080/sse
 DANGEROUSLY_OMIT_AUTH=true npx @modelcontextprotocol/inspector
 ```
 
-1. Open http://127.0.0.1:6274/
-2. Select **Streamable HTTP** transport
-3. Enter URL: `http://localhost:8080/sse`
-4. Click **Connect**
-5. Click **List Tools**
+1. Open http://127.0.0.1:6274/?transport=streamable-http&serverUrl=http://localhost:8080#resources
+2. Click **Connect**
+3. Click **List Tools**
 
 You'll see federated tools from both backend MCP servers (server1 and server2), automatically prefixed to avoid conflicts:
 
