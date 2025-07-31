@@ -65,7 +65,7 @@ func (r *ExtProcServerRunner) AsRunnable(logger logr.Logger) manager.Runnable {
 
 		extProcPb.RegisterExternalProcessorServer(
 			srv,
-			handlers.NewServer(r.Streaming),
+			handlers.NewServer(r.Streaming, nil), // nil SessionMapper for standalone ext-proc
 		)
 
 		// Forward to the gRPC runnable.

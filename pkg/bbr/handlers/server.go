@@ -28,14 +28,31 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func NewServer(streaming bool) *Server {
-	return &Server{streaming: streaming}
+// SessionMapper interface to access session mappings
+type SessionMapper interface {
+	GetSessionMapping(gatewaySessionID string) (*SessionMapping, bool)
+}
+
+// SessionMapping represents the mapping between gateway and backend sessions
+type SessionMapping struct {
+	GatewaySessionID string
+	Server1SessionID string
+	Server2SessionID string
+}
+
+func NewServer(streaming bool, gateway SessionMapper) *Server {
+	return &Server{
+		streaming: streaming,
+		gateway:   gateway,
+	}
 }
 
 // Server implements the Envoy external processing server.
 // https://www.envoyproxy.io/docs/envoy/latest/api-v3/service/ext_proc/v3/external_processor.proto
 type Server struct {
-	streaming bool
+	streaming      bool
+	requestHeaders *extProcPb.HttpHeaders // Store headers for later use in body processing
+	gateway        SessionMapper          // Direct access to session mappings
 }
 
 func (s *Server) Process(srv extProcPb.ExternalProcessor_ProcessServer) error {
@@ -64,6 +81,9 @@ func (s *Server) Process(srv extProcPb.ExternalProcessor_ProcessServer) error {
 		var err error
 		switch v := req.Request.(type) {
 		case *extProcPb.ProcessingRequest_RequestHeaders:
+			// Store headers for later use in body processing
+			s.requestHeaders = req.GetRequestHeaders()
+
 			if s.streaming && !req.GetRequestHeaders().GetEndOfStream() {
 				// If streaming and the body is not empty, then headers are handled when processing request body.
 				log.Println("Received headers, passing off header processing until body arrives...")

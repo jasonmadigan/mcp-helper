@@ -9,7 +9,7 @@ services:
       - "9901:9901"  # Admin interface
     volumes:
       - ./envoy.yaml:/etc/envoy/envoy.yaml:ro
-    command: ["envoy", "-c", "/etc/envoy/envoy.yaml", "--log-level", "info"]
+    command: ["envoy", "-c", "/etc/envoy/envoy.yaml", "--log-level", "debug"]
     depends_on:
       - gateway
 

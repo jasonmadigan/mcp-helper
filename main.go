@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -109,10 +108,7 @@ func main() {
 		// Create a multiplexer to handle different routes
 		mux := http.NewServeMux()
 
-		// Handle session lookup endpoint
-		mux.HandleFunc("/session-lookup", gateway.handleSessionLookup)
-
-		// Handle all other requests as MCP requests
+		// Handle all MCP requests
 		mux.Handle("/", loggingHandler)
 
 		if err := http.ListenAndServe(":"+*port, mux); err != nil {
@@ -130,7 +126,7 @@ func main() {
 	}
 
 	s := grpc.NewServer()
-	extProcPb.RegisterExternalProcessorServer(s, handlers.NewServer(false))
+	extProcPb.RegisterExternalProcessorServer(s, handlers.NewServer(false, gateway))
 
 	log.Println("Starting ext-proc gRPC server on :50051")
 
@@ -313,54 +309,22 @@ func (g *MCPGateway) createBackendConnectionsForSession(ctx context.Context, gat
 	return connections, nil
 }
 
-// getSessionMapping returns the session mapping for a gateway session ID
-func (g *MCPGateway) getSessionMapping(gatewaySessionID string) (*SessionMapping, bool) {
+// GetSessionMapping returns the session mapping for a gateway session ID (implements SessionMapper interface)
+func (g *MCPGateway) GetSessionMapping(gatewaySessionID string) (*handlers.SessionMapping, bool) {
 	g.sessionLock.RLock()
 	defer g.sessionLock.RUnlock()
+
 	mapping, exists := g.sessionMappings[gatewaySessionID]
-	return mapping, exists
-}
-
-// SessionLookupResponse represents the response for session lookup
-type SessionLookupResponse struct {
-	Server1SessionID string `json:"server1_session_id"`
-	Server2SessionID string `json:"server2_session_id"`
-	Found            bool   `json:"found"`
-}
-
-// handleSessionLookup provides an HTTP endpoint for Envoy to lookup session mappings
-func (g *MCPGateway) handleSessionLookup(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
+	if !exists {
+		return nil, false
 	}
 
-	gatewaySessionID := r.Header.Get("x-gateway-session-id")
-	if gatewaySessionID == "" {
-		http.Error(w, "Missing x-gateway-session-id header", http.StatusBadRequest)
-		return
-	}
-
-	mapping, found := g.getSessionMapping(gatewaySessionID)
-
-	response := SessionLookupResponse{
-		Found: found,
-	}
-
-	if found {
-		response.Server1SessionID = mapping.Server1SessionID
-		response.Server2SessionID = mapping.Server2SessionID
-		log.Printf("📋 Session lookup: %s -> server1:%s, server2:%s",
-			gatewaySessionID, mapping.Server1SessionID, mapping.Server2SessionID)
-	} else {
-		log.Printf("❌ Session lookup failed: %s not found", gatewaySessionID)
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		log.Printf("❌ Failed to encode session lookup response: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-	}
+	// Convert to handlers.SessionMapping
+	return &handlers.SessionMapping{
+		GatewaySessionID: mapping.GatewaySessionID,
+		Server1SessionID: mapping.Server1SessionID,
+		Server2SessionID: mapping.Server2SessionID,
+	}, true
 }
 
 // initializeBackends connects to backend servers for initial tool discovery only
