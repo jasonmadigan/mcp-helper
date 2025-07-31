@@ -12,7 +12,7 @@ services:
     command: ["envoy", "-c", "/etc/envoy/envoy.yaml", "--log-level", "info"]
     depends_on:
       - mcp_helper
-
+    tty: true
   mcp_helper:
     container_name: mcp_helper
     build: .

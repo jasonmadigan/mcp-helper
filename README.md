@@ -17,7 +17,7 @@ A streamable HTTP MCP server will now be available at: http://localhost:8080/
 DANGEROUSLY_OMIT_AUTH=true npx @modelcontextprotocol/inspector
 ```
 
-1. Open http://127.0.0.1:6274/?transport=streamable-http&serverUrl=http://localhost:8080#resources
+1. Open http://localhost:6274/?transport=streamable-http&serverUrl=http://localhost:8080#resources
 2. Click **Connect**
 3. Click **List Tools**
 
