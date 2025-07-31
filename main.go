@@ -13,7 +13,7 @@ import (
 	"syscall"
 	"time"
 
-	"mcp-gateway-poc/pkg/bbr/handlers"
+	"mcp-gateway-poc/ext-proc/handlers"
 
 	extProcPb "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 	"github.com/mark3labs/mcp-go/client"

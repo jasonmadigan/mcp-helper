@@ -20,9 +20,9 @@ import (
 	"context"
 	"crypto/tls"
 
-	"mcp-gateway-poc/internal/runnable"
-	tlsutil "mcp-gateway-poc/internal/tls"
-	"mcp-gateway-poc/pkg/bbr/handlers"
+	"mcp-gateway-poc/ext-proc/handlers"
+	"mcp-gateway-poc/ext-proc/internal/runnable"
+	tlsutil "mcp-gateway-poc/ext-proc/internal/tls"
 
 	extProcPb "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 	"github.com/go-logr/logr"
