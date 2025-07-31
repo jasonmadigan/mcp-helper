@@ -8,7 +8,6 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY main.go ./
-COPY health.go ./
 COPY pkg/bbr ./pkg/bbr
 COPY internal ./internal
 
