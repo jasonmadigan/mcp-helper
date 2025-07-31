@@ -1,6 +1,6 @@
 # MCP Gateway PoC
 
-MCP Gateway with Rust Envoy dynamic module.
+MCP Gateway with Go Envoy external processor.
 
 ## Run
 

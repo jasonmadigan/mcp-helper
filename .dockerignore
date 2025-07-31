@@ -25,9 +25,7 @@ Dockerfile
 docker-compose.yml
 .dockerignore
 
-# Rust build artifacts
-envoy-filter/target/
-envoy-filter/*.wasm
+# No longer needed - using Go external processor instead of Rust dynamic module
 
 # IDE files
 .vscode/
