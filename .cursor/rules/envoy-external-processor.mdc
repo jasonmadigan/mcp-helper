@@ -1,0 +1,187 @@
+# Envoy External Processor Development
+
+## Core Architecture
+- **Protocol**: gRPC service implementing `EnvoyExternalProcessor`
+- **Integration**: Embedded in main MCP Helper binary
+- **Purpose**: Request/response processing for MCP tool routing
+
+## Service Implementation
+
+### Server Structure
+```go
+type Server struct {
+    streaming      bool
+    requestHeaders *extProcPb.HttpHeaders
+    helper         SessionMapper // Direct access to helper's session mappings
+}
+
+// SessionMapper interface for accessing helper session data
+type SessionMapper interface {
+    GetSessionMapping(helperSessionID string) (*SessionMapping, bool)
+}
+```
+
+### Main Process Loop
+```go
+func (s *Server) Process(srv extProcPb.ExternalProcessor_ProcessServer) error {
+    for {
+        req, err := srv.Recv()
+        if err != nil {
+            return err
+        }
+
+        switch v := req.Request.(type) {
+        case *extProcPb.ProcessingRequest_RequestHeaders:
+            // Store headers for later use in body processing
+            s.requestHeaders = req.GetRequestHeaders()
+            
+        case *extProcPb.ProcessingRequest_RequestBody:
+            // Parse MCP JSON-RPC, extract tool names, set routing
+            responses, err := s.HandleRequestBody(ctx, v.RequestBody)
+            
+        case *extProcPb.ProcessingRequest_ResponseHeaders:
+            // Map backend session IDs back to helper session IDs
+            response := s.HandleResponseHeaders(req.GetResponseHeaders())
+        }
+    }
+}
+```
+
+## Request Processing Patterns
+
+### Tool Name Extraction
+```go
+// Parse JSON-RPC body to extract MCP tool name
+type MCPRequest struct {
+    Method string `json:"method"`
+    Params struct {
+        Name string `json:"name"`
+    } `json:"params"`
+}
+
+// Extract and route based on tool prefix
+toolName := mcpReq.Params.Name
+if strings.HasPrefix(toolName, "server1-") {
+    routeTarget = "server1"
+    strippedName = strings.TrimPrefix(toolName, "server1-")
+}
+```
+
+### Body Modification with Content-Length Fix
+```go
+// Modify JSON body with stripped tool name
+modifiedBody := strings.Replace(string(bodyBytes), 
+    fmt.Sprintf(`"name":"%s"`, toolName),
+    fmt.Sprintf(`"name":"%s"`, strippedName), 1)
+
+// CRITICAL: Update content-length header to match modified body
+contentLength := fmt.Sprintf("%d", len(modifiedBody))
+headers = append(headers, &basepb.HeaderValueOption{
+    Header: &basepb.HeaderValue{
+        Key:      "content-length",
+        RawValue: []byte(contentLength),
+    },
+})
+```
+
+### Session ID Management
+```go
+// Extract helper session from request headers
+helperSession := extractSessionFromHeaders(s.requestHeaders)
+
+// Get backend session mapping (direct memory access, no HTTP calls)
+sessionMapping, found := s.helper.GetSessionMapping(helperSession)
+if found {
+    backendSession := sessionMapping.Server1SessionID // or Server2SessionID
+}
+
+// Set backend session in request headers
+headers = append(headers, &basepb.HeaderValueOption{
+    Header: &basepb.HeaderValue{
+        Key:      "mcp-session-id",
+        RawValue: []byte(backendSession),
+    },
+})
+```
+
+### Routing Headers
+```go
+// Set routing headers for Envoy
+routingHeaders := []*basepb.HeaderValueOption{
+    {
+        Header: &basepb.HeaderValue{
+            Key:      "x-mcp-server",
+            RawValue: []byte(routeTarget), // "server1" or "server2"
+        },
+    },
+}
+
+// Clear route cache to force re-evaluation
+return &extProcPb.ProcessingResponse{
+    Response: &extProcPb.ProcessingResponse_RequestBody{
+        RequestBody: &extProcPb.BodyResponse{
+            Response: &extProcPb.CommonResponse{
+                HeaderMutation: &extProcPb.HeaderMutation{
+                    SetHeaders: routingHeaders,
+                },
+                BodyMutation: &extProcPb.BodyMutation{
+                    Body: []byte(modifiedBody),
+                },
+                ClearRouteCache: true, // Essential for routing
+            },
+        },
+    },
+}
+```
+
+## Response Processing
+
+### Session ID Reverse Mapping
+```go
+// Map backend session IDs back to helper session IDs
+func (s *Server) HandleResponseHeaders(headers *extProcPb.HttpHeaders) *extProcPb.ProcessingResponse {
+    mcpSessionID := extractHeaderValue(headers, "mcp-session-id")
+    
+    // Check for backend session patterns
+    var helperSession string
+    if strings.HasPrefix(mcpSessionID, "server1-session-") {
+        helperSession = mcpSessionID[16:] // Remove "server1-session-" prefix
+    } else if strings.HasPrefix(mcpSessionID, "server2-session-") {
+        helperSession = mcpSessionID[16:] // Remove "server2-session-" prefix  
+    }
+    
+    if helperSession != "" {
+        // Replace with helper session ID
+        return &extProcPb.ProcessingResponse{
+            Response: &extProcPb.ProcessingResponse_ResponseHeaders{
+                ResponseHeaders: &extProcPb.HeadersResponse{
+                    Response: &extProcPb.CommonResponse{
+                        HeaderMutation: &extProcPb.HeaderMutation{
+                            SetHeaders: []*basepb.HeaderValueOption{{
+                                Header: &basepb.HeaderValue{
+                                    Key:      "mcp-session-id",
+                                    RawValue: []byte(helperSession),
+                                },
+                            }},
+                        },
+                    },
+                },
+            },
+        }
+    }
+}
+```
+
+## Integration with Main Service
+```go
+// In main.go - register external processor
+s := grpc.NewServer()
+extProcPb.RegisterExternalProcessorServer(s, extProc.NewServer(false, helper))
+
+// Run gRPC server concurrently with HTTP server
+go func() {
+    if err := s.Serve(lis); err != nil {
+        log.Fatalf("Failed to serve gRPC: %v", err)
+    }
+}()
+```

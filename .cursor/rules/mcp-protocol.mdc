@@ -1,0 +1,107 @@
+
+
+# MCP Protocol Development
+
+## Framework
+- **Library**: mcp-go v0.36.0 (includes `GetSessionId()` method)
+- **Transport**: HTTP with streamable HTTP MCP protocol (not SSE)
+- **Protocol Version**: Use `mcp.LATEST_PROTOCOL_VERSION`
+
+## Key Patterns
+
+### Server Setup
+```go
+mcpServer := server.NewMCPServer(
+    "Server Name",
+    "1.0.0",
+    server.WithToolCapabilities(true),
+)
+
+// Use streamable HTTP server for MCP Helper
+streamableServer := server.NewStreamableHTTPServer(mcpServer)
+```
+
+### Tool Registration
+```go
+// Tool handlers must match this signature
+func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error)
+
+// Tool definition with parameters
+s.AddTool(mcp.NewTool("tool_name",
+    mcp.WithDescription("Tool description"),
+    mcp.WithString("param_name", 
+        mcp.Description("Parameter description"), 
+        mcp.Required()),
+), handleToolFunction)
+```
+
+### Session Management (v0.36.0+)
+```go
+// Extract session from server context
+session := server.ClientSessionFromContext(ctx)
+if session == nil {
+    return mcp.NewToolResultError("No active session"), nil
+}
+clientSessionID := session.SessionID()
+
+// Extract session ID from client after initialization
+client := client.NewClient(httpTransport)
+serverInfo, err := client.Initialize(ctx, initRequest)
+sessionID := client.GetSessionId() // v0.36.0 feature
+```
+
+### Client Connections  
+```go
+// Create HTTP transport
+httpTransport, err := transport.NewStreamableHTTP(serverURL)
+client := client.NewClient(httpTransport)
+
+// Initialize with proper client info
+initRequest := mcp.InitializeRequest{}
+initRequest.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
+initRequest.Params.ClientInfo = mcp.Implementation{
+    Name:    "MCP Helper",
+    Version: "1.0.0",
+}
+serverInfo, err := client.Initialize(ctx, initRequest)
+
+// Extract real session ID (v0.36.0)
+sessionID := client.GetSessionId()
+```
+
+### Tool Response Patterns
+```go
+// Success with text content
+return mcp.NewToolResultText("Response message"), nil
+
+// Success with JSON content  
+return mcp.NewToolResultJSON(map[string]interface{}{
+    "key": "value",
+}), nil
+
+// Error response
+return mcp.NewToolResultError("Error message"), nil
+```
+
+## Environment Configuration
+- Use `getEnv(key, defaultValue)` helper for configuration
+- Standard environment variables:
+  - `SERVER1_URL` (default: "http://localhost:8081")
+  - `SERVER2_URL` (default: "http://localhost:8082")
+
+## Session Middleware Pattern
+```go
+// Capture session IDs from initialize responses
+type sessionCapturingWriter struct {
+    http.ResponseWriter
+    helper *MCPHelper
+}
+
+func (w *sessionCapturingWriter) Write(data []byte) (int, error) {
+    // Detect mcp-session-id in response headers
+    if sessionID := w.Header().Get("mcp-session-id"); sessionID != "" {
+        go w.helper.handleInitialization(context.Background(), sessionID)
+    }
+    return w.ResponseWriter.Write(data)
+}
+```

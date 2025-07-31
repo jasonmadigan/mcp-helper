@@ -1,0 +1,74 @@
+
+
+# MCP Helper PoC Architecture
+
+This is a proof of concept for an MCP (Model Context Protocol) Helper with Go-based Envoy external processor.
+
+## Development Rules
+
+**🚫 NO PLACEHOLDERS**: Always implement real, working functionality. No placeholder code, dummy values, or "TODO" implementations unless explicitly requested by the user. Be persistent and complete all implementations.
+
+## Architecture Flow
+```
+Client → Envoy (External Processor) → MCP Helper → Server1/Server2
+```
+
+## Core Components
+
+### MCP Helper ([main.go](mdc:main.go))
+- **Framework**: mcp-go v0.36.0 (with GetSessionId() method)
+- **Transport**: HTTP with streamable HTTP MCP protocol
+- **Dual Service**: Runs both HTTP MCP server (port 8080) and gRPC external processor (port 50051)
+- **Session Management**: Real session ID extraction using `client.GetSessionId()`
+- **Tool Aggregation**: Handles `initialize` and `tools/list` calls
+- **Session Mapping**: Direct memory access via `SessionMapper` interface
+
+### Envoy External Processor ([ext-proc/](mdc:ext-proc/))
+- **Language**: Go gRPC service (integrated with main.go)
+- **Purpose**: Request/response processing for MCP routing
+- **Key Features**:
+  - Tool name stripping (`server1-timestamp` → `timestamp`)
+  - Session ID mapping and header rewriting
+  - Body-based routing with `ClearRouteCache`
+  - Content-length header correction after body modification
+  - Direct access to helper's session mappings (no HTTP calls)
+
+### Backend Servers
+- **Server1** ([server1/main.go](mdc:server1/main.go)): `echo`, `timestamp`, `echo_headers` tools
+- **Server2** ([server2/main.go](mdc:server2/main.go)): `dice_roll`, `8_ball`, `echo_headers` tools
+- **Port Mapping**: Server1 (8081), Server2 (8082)
+
+## Session Management
+- **Helper Sessions**: Issues helper session IDs to clients  
+- **Backend Initialization**: Creates real connections to both servers
+- **Session Extraction**: Uses `client.GetSessionId()` after initialization
+- **Mapping Storage**: In-memory map `sessionMappings[helperSessionID] → SessionMapping`
+- **No Placeholders**: All session IDs are real, extracted from backend responses
+
+## Routing Logic
+
+### Envoy External Processor Routing
+- **initialize/tools/list**: Pass through to Helper (aggregated tools)
+- **tools/call**: Parse body, extract tool name, route by prefix:
+  - `server1-*` tools → Set `x-mcp-server: server1` header
+  - `server2-*` tools → Set `x-mcp-server: server2` header
+  - Strip tool prefix before forwarding to backend
+  - Replace helper session ID with backend session ID
+
+### Response Processing
+- **Response Headers**: Map backend session IDs back to helper session IDs
+- **Session ID Patterns**: `server1-session-*` and `server2-session-*`
+
+## Configuration
+- **Environment Variables**: `SERVER1_URL`, `SERVER2_URL`
+- **Docker Images**: `quay.io/dmartin/mcp-helper-poc*`
+- **Envoy Config**: [envoy.yaml](mdc:envoy.yaml) with ext-proc filter
+- **Build**: [docker-compose.yml](mdc:docker-compose.yml) orchestrates all services
+
+## Critical Dependencies
+- **mcp-go v0.36.0**: Essential for `GetSessionId()` functionality
+- **Envoy v1.31**: External processor support
+- **Key Examples**:
+  - https://raw.githubusercontent.com/mark3labs/mcp-go/refs/heads/main/examples/simple_client/main.go
+  - https://raw.githubusercontent.com/mark3labs/mcp-go/refs/heads/main/examples/everything/main.go
+

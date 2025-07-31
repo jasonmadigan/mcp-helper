@@ -25,6 +25,8 @@ Dockerfile
 docker-compose.yml
 .dockerignore
 
+# No longer needed - using Go external processor instead of Rust dynamic module
+
 # IDE files
 .vscode/
 .idea/
