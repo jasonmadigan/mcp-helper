@@ -1,0 +1,176 @@
+# Go Coding Standards
+
+## Naming Conventions
+- **Project**: "MCP Helper" (not "MCP Gateway")  
+- **Struct Names**: `MCPHelper`, `SessionMapping`, `ClientBackendConnections`
+- **Function Names**: Use "Helper" not "Gateway" in comments and names
+- **Tool Names**: Use "helper_info" not "gateway_info"
+
+## Error Handling Patterns
+```go
+// Always handle errors explicitly, never ignore
+client, sessionID, err := createClientBackendConnection(ctx, "server1", server1URL, clientSessionID)
+if err != nil {
+    return fmt.Errorf("failed to create server1 connection: %w", err)
+}
+
+// Use descriptive error messages with context
+log.Printf("❌ Tool call reached helper unexpectedly: %s (should be routed by Envoy)", toolName)
+return mcp.NewToolResultError(fmt.Sprintf("Tool call %s reached helper - this should be handled by Envoy routing", toolName)), nil
+```
+
+## Logging Standards
+```go
+// Use emoji and structured logging for visibility
+log.Printf("🆕 Creating backend sessions for helper session: %s", helperSessionID)
+log.Printf("✅ Client %s connected to %s: %s with session ID: %s", clientSessionID, serverName, serverInfo.ServerInfo.Name, sessionID)
+log.Printf("🔗 Creating backend connections for session: %s", helperSessionID)
+
+// Use [EXT-PROC] prefix for external processor logs
+log.Printf("[EXT-PROC] 🔍 Header: %s = %s", headerName, headerValue)
+log.Printf("[EXT-PROC] Processing request body for MCP tool calls...")
+```
+
+## Session Management
+```go
+// Always use real session IDs, never placeholders
+sessionID := client.GetSessionId() // v0.36.0 feature
+if sessionID == "" {
+    return fmt.Errorf("failed to get session ID from %s - session ID is empty", serverName)
+}
+
+// Store real session mappings
+mapping := SessionMapping{
+    HelperSessionID:  helperSessionID,
+    Server1SessionID: connections.Server1SessionID,
+    Server2SessionID: connections.Server2SessionID,
+}
+g.sessionMappings[helperSessionID] = mapping
+```
+
+## Concurrency Patterns
+```go
+// Use goroutines for concurrent server startup
+go func() {
+    log.Println("Starting HTTP MCP server on :8080")
+    if err := http.ListenAndServe(":8080", loggingHandler); err != nil {
+        log.Fatalf("Failed to start HTTP server: %v", err)
+    }
+}()
+
+go func() {
+    log.Println("Starting ext-proc gRPC server on :50051")
+    if err := s.Serve(lis); err != nil {
+        log.Fatalf("Failed to serve gRPC: %v", err)
+    }
+}()
+```
+
+## Environment Configuration
+```go
+// Use getEnv helper with descriptive defaults
+var (
+    server1URL = getEnv("SERVER1_URL", "http://localhost:8081")
+    server2URL = getEnv("SERVER2_URL", "http://localhost:8082")
+)
+
+// Helper function pattern
+func getEnv(key, defaultValue string) string {
+    if value := os.Getenv(key); value != "" {
+        return value
+    }
+    return defaultValue
+}
+```
+
+## Mutex and Safety
+```go
+// Use RWMutex for read-heavy workloads
+type MCPHelper struct {
+    toolsLock       sync.RWMutex
+    connectionsLock sync.RWMutex
+    sessionMappings map[string]SessionMapping
+}
+
+// Proper lock usage
+g.toolsLock.RLock()
+toolCount := len(g.aggregatedTools)
+g.toolsLock.RUnlock()
+```
+
+## Interface Patterns
+```go
+// Define interfaces for testability and decoupling
+type SessionMapper interface {
+    GetSessionMapping(helperSessionID string) (*SessionMapping, bool)
+}
+
+// Implement interfaces on concrete types
+func (g *MCPHelper) GetSessionMapping(helperSessionID string) (*SessionMapping, bool) {
+    g.connectionsLock.RLock()
+    defer g.connectionsLock.RUnlock()
+    
+    mapping, exists := g.sessionMappings[helperSessionID]
+    if !exists {
+        return nil, false
+    }
+    
+    // Return copy to avoid mutation
+    return &SessionMapping{
+        HelperSessionID:  mapping.HelperSessionID,
+        Server1SessionID: mapping.Server1SessionID,
+        Server2SessionID: mapping.Server2SessionID,
+    }, true
+}
+```
+
+## HTTP Middleware Pattern
+```go
+// Use middleware for cross-cutting concerns
+func (g *MCPHelper) loggingMiddleware(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        log.Printf("=== HELPER REQUEST ===")
+        log.Printf("Method: %s, URL: %s", r.Method, r.URL.Path)
+        
+        // Wrap response writer for session capture
+        sessionWriter := &sessionCapturingWriter{
+            ResponseWriter: w,
+            helper:         g,
+        }
+        
+        next.ServeHTTP(sessionWriter, r)
+    })
+}
+```
+
+## Import Organization
+```go
+import (
+    // Standard library first
+    "context"
+    "fmt"
+    "log"
+    "net/http"
+    
+    // Local imports second
+    extProc "mcp-helper-poc/ext-proc"
+    
+    // Third-party imports last
+    extProcPb "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
+    "github.com/mark3labs/mcp-go/client"
+    "google.golang.org/grpc"
+)
+```
+
+## Tool Registration Pattern
+```go
+// Use descriptive tool definitions
+g.mcpServer.AddTool(mcp.NewTool("helper_info",
+    mcp.WithDescription("Get information about the MCP Helper"),
+), g.handleHelperInfo)
+
+// Consistent handler signatures
+func (g *MCPHelper) handleHelperInfo(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+    // Implementation
+}
+```
