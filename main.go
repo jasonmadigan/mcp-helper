@@ -178,7 +178,7 @@ func (h *MCPHelper) loggingMiddleware(next http.Handler) http.Handler {
 		log.Printf("======================")
 
 		// Check if this is an initialize request
-		if r.Method == "POST" && r.URL.Path == "/" {
+		if r.Method == "POST" && (r.URL.Path == "/" || r.URL.Path == "/mcp") {
 			// Wrap the response writer to capture the session ID
 			wrappedWriter := &sessionCapturingWriter{
 				ResponseWriter: w,
@@ -330,6 +330,25 @@ func (g *MCPHelper) GetSessionMapping(helperSessionID string) (*extProc.SessionM
 		Server1SessionID: mapping.Server1SessionID,
 		Server2SessionID: mapping.Server2SessionID,
 	}, true
+}
+
+// DumpAllSessions logs all current session mappings for debugging
+func (g *MCPHelper) DumpAllSessions() {
+	g.sessionLock.RLock()
+	defer g.sessionLock.RUnlock()
+
+	log.Printf("🔍 [HELPER] Session Store Dump - Total sessions: %d", len(g.sessionMappings))
+	if len(g.sessionMappings) == 0 {
+		log.Printf("🔍 [HELPER] Session store is empty")
+		return
+	}
+
+	for helperID, mapping := range g.sessionMappings {
+		log.Printf("🔍 [HELPER] Session: %s", helperID)
+		log.Printf("  └── Helper:  %s", mapping.HelperSessionID)
+		log.Printf("  └── Server1: %s", mapping.Server1SessionID)
+		log.Printf("  └── Server2: %s", mapping.Server2SessionID)
+	}
 }
 
 // initializeBackends connects to backend servers for initial tool discovery only

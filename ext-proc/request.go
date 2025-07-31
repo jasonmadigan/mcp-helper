@@ -9,6 +9,7 @@ import (
 
 	basepb "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	eppb "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
+	typepb "github.com/envoyproxy/go-control-plane/envoy/type/v3"
 )
 
 const (
@@ -169,25 +170,28 @@ func (s *Server) HandleRequestBody(ctx context.Context, data map[string]any) ([]
 	// Get Helper session ID
 	helperSession := s.extractSessionFromContext(ctx)
 	if helperSession == "" {
-		log.Println("[EXT-PROC] No mcp-session-id found in headers, using fallback")
-		fallbackSession := fmt.Sprintf("%s-session-%s", routeTarget, "fallback")
-		return s.createRoutingResponse(toolName, requestBodyBytes, routeTarget, fallbackSession), nil
+		log.Println("[EXT-PROC] ❌ No mcp-session-id found in headers")
+		return s.createErrorResponse("No session ID found", 400), nil
 	}
 
 	log.Printf("[EXT-PROC] Helper session: %s", helperSession)
 
 	// Lookup session mapping directly from helper
 	if s.helper == nil {
-		log.Println("[EXT-PROC] No helper available for session lookup, using fallback")
-		fallbackSession := fmt.Sprintf("%s-session-%s", routeTarget, helperSession)
-		return s.createRoutingResponse(toolName, requestBodyBytes, routeTarget, fallbackSession), nil
+		log.Println("[EXT-PROC] ❌ No helper available for session lookup")
+		return s.createErrorResponse("Helper not available", 500), nil
 	}
 
 	sessionMapping, found := s.helper.GetSessionMapping(helperSession)
 	if !found {
-		log.Printf("[EXT-PROC] Session mapping not found for %s, using fallback", helperSession)
-		fallbackSession := fmt.Sprintf("%s-session-%s", routeTarget, helperSession)
-		return s.createRoutingResponse(toolName, requestBodyBytes, routeTarget, fallbackSession), nil
+		log.Printf("[EXT-PROC] ❌ Session mapping not found for %s", helperSession)
+
+		// Dump entire session store for debugging
+		log.Printf("[EXT-PROC] 🔍 Dumping session store for debugging:")
+		s.helper.DumpAllSessions()
+
+		// Return 500 error instead of fallback
+		return s.createErrorResponse("Session mapping not found", 500), nil
 	}
 
 	// Use the correct backend session ID
@@ -322,6 +326,25 @@ func (s *Server) createEmptyBodyResponse() []*eppb.ProcessingResponse {
 		{
 			Response: &eppb.ProcessingResponse_RequestBody{
 				RequestBody: &eppb.BodyResponse{},
+			},
+		},
+	}
+}
+
+// createErrorResponse creates an immediate error response with the specified status code
+func (s *Server) createErrorResponse(message string, statusCode int32) []*eppb.ProcessingResponse {
+	log.Printf("[EXT-PROC] 🚫 Returning %d error: %s", statusCode, message)
+
+	return []*eppb.ProcessingResponse{
+		{
+			Response: &eppb.ProcessingResponse_ImmediateResponse{
+				ImmediateResponse: &eppb.ImmediateResponse{
+					Status: &typepb.HttpStatus{
+						Code: typepb.StatusCode(statusCode),
+					},
+					Body:    []byte(message),
+					Details: fmt.Sprintf("ext-proc error: %s", message),
+				},
 			},
 		},
 	}

@@ -16,6 +16,7 @@ import (
 // SessionMapper interface to access session mappings
 type SessionMapper interface {
 	GetSessionMapping(helperSessionID string) (*SessionMapping, bool)
+	DumpAllSessions()
 }
 
 // SessionMapping represents the mapping between helper and backend sessions

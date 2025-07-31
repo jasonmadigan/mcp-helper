@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"time"
@@ -62,6 +64,22 @@ func loggingMiddleware(next http.Handler) http.Handler {
 			log.Printf("🔑 [SERVER1] MCP-SESSION-ID: %s", sessionID)
 		} else {
 			log.Printf("❌ [SERVER1] No mcp-session-id header found")
+		}
+
+		// Log request body if present
+		if r.Body != nil {
+			bodyBytes, err := io.ReadAll(r.Body)
+			if err != nil {
+				log.Printf("❌ [SERVER1] Error reading request body: %v", err)
+			} else if len(bodyBytes) > 0 {
+				log.Printf("📝 [SERVER1] Request Body (%d bytes):", len(bodyBytes))
+				log.Printf("%s", string(bodyBytes))
+
+				// Restore the body for the actual handler to read
+				r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+			} else {
+				log.Printf("📝 [SERVER1] Request Body: (empty)")
+			}
 		}
 
 		log.Printf("=======================")
