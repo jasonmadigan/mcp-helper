@@ -22,6 +22,7 @@ import (
 	"errors"
 	"io"
 	"log"
+	"strings"
 
 	extProcPb "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 	"google.golang.org/grpc/codes"
@@ -55,6 +56,20 @@ type Server struct {
 	gateway        SessionMapper          // Direct access to session mappings
 }
 
+const RequestIdHeaderKey = "x-request-id"
+
+func extractHeaderValue(req *extProcPb.ProcessingRequest_RequestHeaders, headerKey string) string {
+	// header key should be case insensitive
+	headerKeyInLower := strings.ToLower(headerKey)
+	if req != nil && req.RequestHeaders != nil && req.RequestHeaders.Headers != nil {
+		for _, headerKv := range req.RequestHeaders.Headers.Headers {
+			if strings.ToLower(headerKv.Key) == headerKeyInLower {
+				return string(headerKv.RawValue)
+			}
+		}
+	}
+	return ""
+}
 func (s *Server) Process(srv extProcPb.ExternalProcessor_ProcessServer) error {
 	ctx := srv.Context()
 	log.Println("Processing new request")
@@ -88,7 +103,7 @@ func (s *Server) Process(srv extProcPb.ExternalProcessor_ProcessServer) error {
 				// If streaming and the body is not empty, then headers are handled when processing request body.
 				log.Println("Received headers, passing off header processing until body arrives...")
 			} else {
-				if requestId := ExtractHeaderValue(v, RequestIdHeaderKey); len(requestId) > 0 {
+				if requestId := extractHeaderValue(v, RequestIdHeaderKey); len(requestId) > 0 {
 					log.Printf("Processing request with ID: %s", requestId)
 				}
 				responses, err = s.HandleRequestHeaders(req.GetRequestHeaders())

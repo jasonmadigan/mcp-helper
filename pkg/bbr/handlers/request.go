@@ -27,7 +27,7 @@ import (
 	eppb "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 )
 
-const toolHeader = "X-MCP-TOOLNAME"
+const toolHeader = "x-mcp-toolname"
 
 // extractMCPToolName safely extracts the tool name from MCP tool call request
 func extractMCPToolName(data map[string]any) string {
