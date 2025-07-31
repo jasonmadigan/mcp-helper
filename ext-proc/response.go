@@ -45,12 +45,12 @@ func (s *Server) HandleResponseHeaders(headers *eppb.HttpHeaders) ([]*eppb.Proce
 
 	log.Printf("[EXT-PROC] Response backend session: %s", mcpSessionID)
 
-	// Check if this is a backend session that needs mapping back to gateway session
-	var gatewaySession string
+	// Check if this is a backend session that needs mapping back to helper session
+	var helperSession string
 	if strings.HasPrefix(mcpSessionID, "server1-session-") {
-		gatewaySession = mcpSessionID[16:] // Remove "server1-session-" prefix
+		helperSession = mcpSessionID[16:] // Remove "server1-session-" prefix
 	} else if strings.HasPrefix(mcpSessionID, "server2-session-") {
-		gatewaySession = mcpSessionID[16:] // Remove "server2-session-" prefix
+		helperSession = mcpSessionID[16:] // Remove "server2-session-" prefix
 	} else {
 		// Not a backend session ID, leave as-is
 		log.Println("[EXT-PROC] Session ID doesn't need reverse mapping")
@@ -63,7 +63,7 @@ func (s *Server) HandleResponseHeaders(headers *eppb.HttpHeaders) ([]*eppb.Proce
 		}, nil
 	}
 
-	log.Printf("[EXT-PROC] Mapping backend session back to gateway session: %s", gatewaySession)
+	log.Printf("[EXT-PROC] Mapping backend session back to helper session: %s", helperSession)
 
 	// Return response with updated session header
 	return []*eppb.ProcessingResponse{
@@ -76,7 +76,7 @@ func (s *Server) HandleResponseHeaders(headers *eppb.HttpHeaders) ([]*eppb.Proce
 								{
 									Header: &basepb.HeaderValue{
 										Key:      "mcp-session-id",
-										RawValue: []byte(gatewaySession),
+										RawValue: []byte(helperSession),
 									},
 								},
 							},

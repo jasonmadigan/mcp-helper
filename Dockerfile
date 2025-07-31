@@ -11,7 +11,7 @@ COPY main.go ./
 COPY ext-proc ./ext-proc
 
 # Build for Linux AMD64
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o gateway main.go
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o mcp_helper main.go
 
 # Final image
 FROM alpine:latest
@@ -20,10 +20,10 @@ RUN apk --no-cache add ca-certificates
 
 WORKDIR /app
 
-COPY --from=builder /app/gateway .
+COPY --from=builder /app/mcp_helper .
 
-RUN chmod +x gateway
+RUN chmod +x mcp_helper
 
 EXPOSE 8081
 
-CMD ["./gateway", "-port=8080"]
+CMD ["./mcp_helper", "-port=8080"]

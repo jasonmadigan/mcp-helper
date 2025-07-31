@@ -105,7 +105,7 @@ func (s *Server) HandleRequestBody(ctx context.Context, data map[string]any) ([]
 	// Extract tool name - only process tools/call
 	toolName := extractMCPToolName(data)
 	if toolName == "" {
-		log.Println("[EXT-PROC] No MCP tool name found or not tools/call, continuing to gateway")
+		log.Println("[EXT-PROC] No MCP tool name found or not tools/call, continuing to helper")
 		return s.createEmptyBodyResponse(), nil
 	}
 
@@ -118,7 +118,7 @@ func (s *Server) HandleRequestBody(ctx context.Context, data map[string]any) ([]
 	} else if strings.HasPrefix(toolName, "server2-") {
 		routeTarget = "server2"
 	} else {
-		log.Println("[EXT-PROC] Tool name doesn't start with server1- or server2-, continuing to gateway")
+		log.Println("[EXT-PROC] Tool name doesn't start with server1- or server2-, continuing to helper")
 		return s.createEmptyBodyResponse(), nil
 	}
 
@@ -145,27 +145,27 @@ func (s *Server) HandleRequestBody(ctx context.Context, data map[string]any) ([]
 		return s.createEmptyBodyResponse(), nil
 	}
 
-	// Get gateway session ID
-	gatewaySession := s.extractSessionFromContext(ctx)
-	if gatewaySession == "" {
+	// Get Helper session ID
+	helperSession := s.extractSessionFromContext(ctx)
+	if helperSession == "" {
 		log.Println("[EXT-PROC] No mcp-session-id found in headers, using fallback")
 		fallbackSession := fmt.Sprintf("%s-session-%s", routeTarget, "fallback")
 		return s.createRoutingResponse(toolName, requestBodyBytes, routeTarget, fallbackSession), nil
 	}
 
-	log.Printf("[EXT-PROC] Gateway session: %s", gatewaySession)
+	log.Printf("[EXT-PROC] Helper session: %s", helperSession)
 
-	// Lookup session mapping directly from gateway (no HTTP call needed!)
-	if s.gateway == nil {
-		log.Println("[EXT-PROC] No gateway available for session lookup, using fallback")
-		fallbackSession := fmt.Sprintf("%s-session-%s", routeTarget, gatewaySession)
+	// Lookup session mapping directly from helper
+	if s.helper == nil {
+		log.Println("[EXT-PROC] No helper available for session lookup, using fallback")
+		fallbackSession := fmt.Sprintf("%s-session-%s", routeTarget, helperSession)
 		return s.createRoutingResponse(toolName, requestBodyBytes, routeTarget, fallbackSession), nil
 	}
 
-	sessionMapping, found := s.gateway.GetSessionMapping(gatewaySession)
+	sessionMapping, found := s.helper.GetSessionMapping(helperSession)
 	if !found {
-		log.Printf("[EXT-PROC] Session mapping not found for %s, using fallback", gatewaySession)
-		fallbackSession := fmt.Sprintf("%s-session-%s", routeTarget, gatewaySession)
+		log.Printf("[EXT-PROC] Session mapping not found for %s, using fallback", helperSession)
+		fallbackSession := fmt.Sprintf("%s-session-%s", routeTarget, helperSession)
 		return s.createRoutingResponse(toolName, requestBodyBytes, routeTarget, fallbackSession), nil
 	}
 
@@ -177,7 +177,7 @@ func (s *Server) HandleRequestBody(ctx context.Context, data map[string]any) ([]
 		backendSession = sessionMapping.Server2SessionID
 	}
 
-	log.Printf("[EXT-PROC] Using gateway-provided session: %s", backendSession)
+	log.Printf("[EXT-PROC] Using helper-provided session: %s", backendSession)
 
 	return s.createRoutingResponse(toolName, requestBodyBytes, routeTarget, backendSession), nil
 }

@@ -15,20 +15,20 @@ import (
 
 // SessionMapper interface to access session mappings
 type SessionMapper interface {
-	GetSessionMapping(gatewaySessionID string) (*SessionMapping, bool)
+	GetSessionMapping(helperSessionID string) (*SessionMapping, bool)
 }
 
-// SessionMapping represents the mapping between gateway and backend sessions
+// SessionMapping represents the mapping between helper and backend sessions
 type SessionMapping struct {
-	GatewaySessionID string
+	HelperSessionID  string
 	Server1SessionID string
 	Server2SessionID string
 }
 
-func NewServer(streaming bool, gateway SessionMapper) *Server {
+func NewServer(streaming bool, helper SessionMapper) *Server {
 	return &Server{
 		streaming: streaming,
-		gateway:   gateway,
+		helper:    helper,
 	}
 }
 
@@ -37,7 +37,7 @@ func NewServer(streaming bool, gateway SessionMapper) *Server {
 type Server struct {
 	streaming      bool
 	requestHeaders *extProcPb.HttpHeaders // Store headers for later use in body processing
-	gateway        SessionMapper          // Direct access to session mappings
+	helper         SessionMapper          // Direct access to session mappings
 }
 
 const RequestIdHeaderKey = "x-request-id"

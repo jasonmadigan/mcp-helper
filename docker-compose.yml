@@ -16,7 +16,7 @@ services:
   mcp_helper:
     container_name: mcp_helper
     build: .
-    image: quay.io/dmartin/mcp-gateway-poc
+    image: quay.io/dmartin/mcp-helper
     environment:
       - SERVER1_URL=http://server1:8081
       - SERVER2_URL=http://server2:8082
@@ -27,9 +27,9 @@ services:
   server1:
     container_name: server1
     build: ./server1
-    image: quay.io/dmartin/mcp-gateway-poc-server1
+    image: quay.io/dmartin/mcp-helper-server1
 
   server2:
     container_name: server2
     build: ./server2
-    image: quay.io/dmartin/mcp-gateway-poc-server2 
+    image: quay.io/dmartin/mcp-helper-server2 

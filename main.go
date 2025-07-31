@@ -13,7 +13,7 @@ import (
 	"syscall"
 	"time"
 
-	extProc "mcp-gateway-poc/ext-proc"
+	extProc "mcp-helper/ext-proc"
 
 	extProcPb "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 	"github.com/mark3labs/mcp-go/client"
@@ -47,9 +47,9 @@ type ClientBackendConnections struct {
 	CreatedAt        time.Time
 }
 
-// SessionMapping holds the mapping between gateway session and backend sessions
+// SessionMapping holds the mapping between helper session and backend sessions
 type SessionMapping struct {
-	GatewaySessionID string
+	helperSessionID  string
 	Server1SessionID string
 	Server2SessionID string
 	CreatedAt        time.Time
@@ -68,7 +68,7 @@ type MCPHelper struct {
 	clientConnections map[string]*ClientBackendConnections
 	connectionsLock   sync.RWMutex
 
-	// Session ID mapping - maps gateway session ID to backend session IDs
+	// Session ID mapping - maps helper session ID to backend session IDs
 	sessionMappings map[string]*SessionMapping
 	sessionLock     sync.RWMutex
 
@@ -83,10 +83,10 @@ func main() {
 
 	log.Println("Starting MCP Helper...")
 
-	gateway := NewMCPHelper()
+	helper := NewMCPHelper()
 
 	// Initialize backend connections and aggregate tools
-	if err := gateway.initializeBackends(); err != nil {
+	if err := helper.initializeBackends(); err != nil {
 		log.Fatalf("Failed to initialize backends: %v", err)
 	}
 
@@ -100,10 +100,10 @@ func main() {
 		log.Printf("MCP endpoint: http://localhost:%s", *port)
 		log.Printf("Backend servers: %s, %s", server1URL, server2URL)
 
-		streamableServer := server.NewStreamableHTTPServer(gateway.mcpServer)
+		streamableServer := server.NewStreamableHTTPServer(helper.mcpServer)
 
 		// Wrap the streamable server with logging middleware
-		loggingHandler := gateway.loggingMiddleware(streamableServer)
+		loggingHandler := helper.loggingMiddleware(streamableServer)
 
 		// Create a multiplexer to handle different routes
 		mux := http.NewServeMux()
@@ -126,7 +126,7 @@ func main() {
 	}
 
 	s := grpc.NewServer()
-	extProcPb.RegisterExternalProcessorServer(s, extProc.NewServer(false, gateway))
+	extProcPb.RegisterExternalProcessorServer(s, extProc.NewServer(false, helper))
 
 	log.Println("Starting ext-proc gRPC server on :50051")
 
@@ -151,10 +151,10 @@ func main() {
 }
 
 // loggingMiddleware adds comprehensive logging for all HTTP requests
-func (g *MCPHelper) loggingMiddleware(next http.Handler) http.Handler {
+func (h *MCPHelper) loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Log all headers for debugging
-		log.Printf("=== GATEWAY REQUEST ===")
+		log.Printf("=== Helper REQUEST ===")
 		log.Printf("Method: %s, URL: %s", r.Method, r.URL.String())
 		log.Printf("Headers:")
 		for name, values := range r.Header {
@@ -178,7 +178,7 @@ func (g *MCPHelper) loggingMiddleware(next http.Handler) http.Handler {
 			// Wrap the response writer to capture the session ID
 			wrappedWriter := &sessionCapturingWriter{
 				ResponseWriter: w,
-				gateway:        g,
+				helper:         h,
 			}
 			next.ServeHTTP(wrappedWriter, r)
 		} else {
@@ -190,7 +190,7 @@ func (g *MCPHelper) loggingMiddleware(next http.Handler) http.Handler {
 // sessionCapturingWriter wraps http.ResponseWriter to capture session IDs from initialize responses
 type sessionCapturingWriter struct {
 	http.ResponseWriter
-	gateway *MCPHelper
+	helper *MCPHelper
 }
 
 func (w *sessionCapturingWriter) Header() http.Header {
@@ -206,7 +206,7 @@ func (w *sessionCapturingWriter) Write(data []byte) (int, error) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 
-			if err := w.gateway.handleInitialization(ctx, sessionID); err != nil {
+			if err := w.helper.handleInitialization(ctx, sessionID); err != nil {
 				log.Printf("❌ Failed to create session mapping for %s: %v", sessionID, err)
 			}
 		}()
@@ -221,72 +221,72 @@ func (w *sessionCapturingWriter) WriteHeader(statusCode int) {
 
 // NewMCPHelper creates a new MCP Helper instance
 func NewMCPHelper() *MCPHelper {
-	gateway := &MCPHelper{
+	helper := &MCPHelper{
 		aggregatedTools:   make([]mcp.Tool, 0),
 		clientConnections: make(map[string]*ClientBackendConnections),
 		sessionMappings:   make(map[string]*SessionMapping),
 	}
 
 	// Create MCP server with tool capabilities
-	gateway.mcpServer = server.NewMCPServer(
+	helper.mcpServer = server.NewMCPServer(
 		"MCP Helper",
 		"1.0.0",
 		server.WithToolCapabilities(true),
 	)
 
-	// Setup gateway handlers
-	gateway.setupHandlers()
+	// Setup helper handlers
+	helper.setupHandlers()
 
-	return gateway
+	return helper
 }
 
 // setupHandlers configures the MCP server handlers
-func (g *MCPHelper) setupHandlers() {
-	// Gateway info tool
-	g.mcpServer.AddTool(mcp.NewTool("gateway_info",
+func (h *MCPHelper) setupHandlers() {
+	// helper info tool
+	h.mcpServer.AddTool(mcp.NewTool("helper_info",
 		mcp.WithDescription("Get information about the MCP Helper"),
-	), g.handleGatewayInfo)
+	), h.handleHelperInfo)
 }
 
 // handleInitialization creates backend sessions when a client initializes
-func (g *MCPHelper) handleInitialization(ctx context.Context, gatewaySessionID string) error {
-	log.Printf("🆕 Creating backend sessions for gateway session: %s", gatewaySessionID)
+func (h *MCPHelper) handleInitialization(ctx context.Context, helperSessionID string) error {
+	log.Printf("🆕 Creating backend sessions for helper session: %s", helperSessionID)
 
 	// Create backend connections
-	connections, err := g.createBackendConnectionsForSession(ctx, gatewaySessionID)
+	connections, err := h.createBackendConnectionsForSession(ctx, helperSessionID)
 	if err != nil {
 		return fmt.Errorf("failed to create backend connections: %w", err)
 	}
 
 	// Store session mapping
 	mapping := &SessionMapping{
-		GatewaySessionID: gatewaySessionID,
+		helperSessionID:  helperSessionID,
 		Server1SessionID: connections.Server1SessionID,
 		Server2SessionID: connections.Server2SessionID,
 		CreatedAt:        time.Now(),
 	}
 
-	g.sessionLock.Lock()
-	g.sessionMappings[gatewaySessionID] = mapping
-	g.sessionLock.Unlock()
+	h.sessionLock.Lock()
+	h.sessionMappings[helperSessionID] = mapping
+	h.sessionLock.Unlock()
 
 	log.Printf("✅ session mapping created: %s -> server1:%s, server2:%s",
-		gatewaySessionID, connections.Server1SessionID, connections.Server2SessionID)
+		helperSessionID, connections.Server1SessionID, connections.Server2SessionID)
 
 	return nil
 }
 
 // createBackendConnectionsForSession creates and initializes backend connections
-func (g *MCPHelper) createBackendConnectionsForSession(ctx context.Context, gatewaySessionID string) (*ClientBackendConnections, error) {
-	log.Printf("🔗 Creating backend connections for session: %s", gatewaySessionID)
+func (h *MCPHelper) createBackendConnectionsForSession(ctx context.Context, helperSessionID string) (*ClientBackendConnections, error) {
+	log.Printf("🔗 Creating backend connections for session: %s", helperSessionID)
 
 	connections := &ClientBackendConnections{
-		ClientSessionID: gatewaySessionID,
+		ClientSessionID: helperSessionID,
 		CreatedAt:       time.Now(),
 	}
 
 	// Create and initialize server1 connection
-	client1, sessionID1, err := g.createClientBackendConnection(ctx, connections.ClientSessionID, "server1", server1URL)
+	client1, sessionID1, err := h.createClientBackendConnection(ctx, connections.ClientSessionID, "server1", server1URL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create server1 connection: %w", err)
 	}
@@ -294,7 +294,7 @@ func (g *MCPHelper) createBackendConnectionsForSession(ctx context.Context, gate
 	connections.Server1SessionID = sessionID1
 
 	// Create and initialize server2 connection
-	client2, sessionID2, err := g.createClientBackendConnection(ctx, connections.ClientSessionID, "server2", server2URL)
+	client2, sessionID2, err := h.createClientBackendConnection(ctx, connections.ClientSessionID, "server2", server2URL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create server2 connection: %w", err)
 	}
@@ -302,26 +302,26 @@ func (g *MCPHelper) createBackendConnectionsForSession(ctx context.Context, gate
 	connections.Server2SessionID = sessionID2
 
 	// Store the connections for later use
-	g.connectionsLock.Lock()
-	g.clientConnections[gatewaySessionID] = connections
-	g.connectionsLock.Unlock()
+	h.connectionsLock.Lock()
+	h.clientConnections[helperSessionID] = connections
+	h.connectionsLock.Unlock()
 
 	return connections, nil
 }
 
-// GetSessionMapping returns the session mapping for a gateway session ID (implements SessionMapper interface)
-func (g *MCPHelper) GetSessionMapping(gatewaySessionID string) (*extProc.SessionMapping, bool) {
+// GetSessionMapping returns the session mapping for a helper session ID (implements SessionMapper interface)
+func (g *MCPHelper) GetSessionMapping(helperSessionID string) (*extProc.SessionMapping, bool) {
 	g.sessionLock.RLock()
 	defer g.sessionLock.RUnlock()
 
-	mapping, exists := g.sessionMappings[gatewaySessionID]
+	mapping, exists := g.sessionMappings[helperSessionID]
 	if !exists {
 		return nil, false
 	}
 
 	// Convert to extProc.SessionMapping
 	return &extProc.SessionMapping{
-		GatewaySessionID: mapping.GatewaySessionID,
+		HelperSessionID:  mapping.helperSessionID,
 		Server1SessionID: mapping.Server1SessionID,
 		Server2SessionID: mapping.Server2SessionID,
 	}, true
@@ -463,8 +463,8 @@ func (g *MCPHelper) registerAggregatedTools() {
 }
 
 func (g *MCPHelper) routeToolCall(_ context.Context, toolName string, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	log.Printf("❌ Tool call reached gateway unexpectedly: %s (should be routed by Envoy)", toolName)
-	return mcp.NewToolResultError(fmt.Sprintf("Tool call %s reached gateway - this should be handled by Envoy routing", toolName)), nil
+	log.Printf("❌ Tool call reached helper unexpectedly: %s (should be routed by Envoy)", toolName)
+	return mcp.NewToolResultError(fmt.Sprintf("Tool call %s reached helper - this should be handled by Envoy routing", toolName)), nil
 }
 
 // createClientBackendConnection creates and initializes a client connection to a backend server
@@ -510,8 +510,8 @@ func (g *MCPHelper) createClientBackendConnection(ctx context.Context, clientSes
 	return mcpClient, sessionID, nil
 }
 
-// handleGatewayInfo handles the gateway_info tool
-func (g *MCPHelper) handleGatewayInfo(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+// handleHelperInfo handles the helper_info tool
+func (g *MCPHelper) handleHelperInfo(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	g.toolsLock.RLock()
 	toolCount := len(g.aggregatedTools)
 	g.toolsLock.RUnlock()
@@ -521,7 +521,7 @@ func (g *MCPHelper) handleGatewayInfo(ctx context.Context, req mcp.CallToolReque
 	g.connectionsLock.RUnlock()
 
 	info := map[string]interface{}{
-		"gateway_name":       "MCP Helper",
+		"helper_name":        "MCP Helper",
 		"version":            "1.0.0",
 		"backend_servers":    []string{server1URL, server2URL},
 		"aggregated_tools":   toolCount,
@@ -531,5 +531,5 @@ func (g *MCPHelper) handleGatewayInfo(ctx context.Context, req mcp.CallToolReque
 		"routing":            "handled by Envoy dynamic module",
 	}
 
-	return mcp.NewToolResultText(fmt.Sprintf("Gateway Info: %+v", info)), nil
+	return mcp.NewToolResultText(fmt.Sprintf("Helper Info: %+v", info)), nil
 }
