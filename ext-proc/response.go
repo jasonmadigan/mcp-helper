@@ -8,6 +8,20 @@ import (
 	eppb "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 )
 
+// Session prefixes for reverse mapping
+var sessionPrefixes = []string{"server1-session-", "server2-session-"}
+
+// extractHelperSessionFromBackend extracts the helper session ID from a backend session ID
+// Returns empty string if not a backend session ID
+func extractHelperSessionFromBackend(backendSessionID string) string {
+	for _, prefix := range sessionPrefixes {
+		if strings.HasPrefix(backendSessionID, prefix) {
+			return strings.TrimPrefix(backendSessionID, prefix)
+		}
+	}
+	return ""
+}
+
 // HandleResponseHeaders handles response headers for session ID reverse mapping
 func (s *Server) HandleResponseHeaders(headers *eppb.HttpHeaders) ([]*eppb.ProcessingResponse, error) {
 	log.Println("[EXT-PROC] Processing response headers for session mapping...")
@@ -46,12 +60,8 @@ func (s *Server) HandleResponseHeaders(headers *eppb.HttpHeaders) ([]*eppb.Proce
 	log.Printf("[EXT-PROC] Response backend session: %s", mcpSessionID)
 
 	// Check if this is a backend session that needs mapping back to helper session
-	var helperSession string
-	if strings.HasPrefix(mcpSessionID, "server1-session-") {
-		helperSession = mcpSessionID[16:] // Remove "server1-session-" prefix
-	} else if strings.HasPrefix(mcpSessionID, "server2-session-") {
-		helperSession = mcpSessionID[16:] // Remove "server2-session-" prefix
-	} else {
+	helperSession := extractHelperSessionFromBackend(mcpSessionID)
+	if helperSession == "" {
 		// Not a backend session ID, leave as-is
 		log.Println("[EXT-PROC] Session ID doesn't need reverse mapping")
 		return []*eppb.ProcessingResponse{

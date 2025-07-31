@@ -11,7 +11,11 @@ import (
 	eppb "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 )
 
-const toolHeader = "x-mcp-toolname"
+const (
+	toolHeader    = "x-mcp-toolname"
+	serverHeader  = "x-mcp-server"
+	sessionHeader = "mcp-session-id"
+)
 
 // extractMCPToolName safely extracts the tool name from MCP tool call request
 func extractMCPToolName(data map[string]any) string {
@@ -70,14 +74,35 @@ func extractMCPToolName(data map[string]any) string {
 	return nameStr
 }
 
-// stripServerPrefix removes server1- or server2- prefix from tool names
+// Server configuration for tool processing
+var serverConfigs = []struct {
+	prefix string
+	target string
+}{{
+	prefix: "server1-",
+	target: "server1",
+}, {
+	prefix: "server2-",
+	target: "server2",
+}}
+
+// getRouteTargetFromTool determines which server to route to based on tool name prefix
+func getRouteTargetFromTool(toolName string) string {
+	for _, config := range serverConfigs {
+		if strings.HasPrefix(toolName, config.prefix) {
+			return config.target
+		}
+	}
+	return ""
+}
+
+// stripServerPrefix removes serverN- prefix from tool names
 // Returns the stripped name and whether stripping was needed
 func stripServerPrefix(toolName string) (string, bool) {
-	if len(toolName) > 8 && toolName[:8] == "server1-" {
-		return toolName[8:], true
-	}
-	if len(toolName) > 8 && toolName[:8] == "server2-" {
-		return toolName[8:], true
+	for _, config := range serverConfigs {
+		if strings.HasPrefix(toolName, config.prefix) {
+			return strings.TrimPrefix(toolName, config.prefix), true
+		}
 	}
 	return toolName, false
 }
@@ -112,13 +137,9 @@ func (s *Server) HandleRequestBody(ctx context.Context, data map[string]any) ([]
 	log.Printf("[EXT-PROC] Tool name: %s", toolName)
 
 	// Determine routing based on tool prefix
-	var routeTarget string
-	if strings.HasPrefix(toolName, "server1-") {
-		routeTarget = "server1"
-	} else if strings.HasPrefix(toolName, "server2-") {
-		routeTarget = "server2"
-	} else {
-		log.Println("[EXT-PROC] Tool name doesn't start with server1- or server2-, continuing to helper")
+	routeTarget := getRouteTargetFromTool(toolName)
+	if routeTarget == "" {
+		log.Printf("[EXT-PROC] Tool name '%s' doesn't match any server prefix, continuing to helper", toolName)
 		return s.createEmptyBodyResponse(), nil
 	}
 
@@ -195,7 +216,7 @@ func (s *Server) createRoutingResponse(toolName string, bodyBytes []byte, routeT
 		},
 		{
 			Header: &basepb.HeaderValue{
-				Key:      "x-mcp-server",
+				Key:      serverHeader,
 				RawValue: []byte(routeTarget),
 			},
 		},
@@ -205,7 +226,7 @@ func (s *Server) createRoutingResponse(toolName string, bodyBytes []byte, routeT
 	if backendSession != "" {
 		headers = append(headers, &basepb.HeaderValueOption{
 			Header: &basepb.HeaderValue{
-				Key:      "mcp-session-id",
+				Key:      sessionHeader,
 				RawValue: []byte(backendSession),
 			},
 		})

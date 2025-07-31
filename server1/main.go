@@ -139,7 +139,7 @@ func handleEchoHeaders(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallT
 		headers["context_debug"] = "No HTTP headers found in context"
 	}
 
-	result := fmt.Sprintf("Server1 Headers:\n")
+	result := "Server1 Headers:\n"
 	for key, value := range headers {
 		result += fmt.Sprintf("  %s: %v\n", key, value)
 	}

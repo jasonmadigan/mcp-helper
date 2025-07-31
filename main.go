@@ -253,6 +253,7 @@ func (h *MCPHelper) handleInitialization(ctx context.Context, helperSessionID st
 	log.Printf("🆕 Creating backend sessions for helper session: %s", helperSessionID)
 
 	// Create backend connections
+	// TODO: Make this reactive, when a tool call is made, create the backend connection & session mapping if they don't exist
 	connections, err := h.createBackendConnectionsForSession(ctx, helperSessionID)
 	if err != nil {
 		return fmt.Errorf("failed to create backend connections: %w", err)
@@ -347,6 +348,7 @@ func (g *MCPHelper) initializeBackends() error {
 }
 
 // initializeStartupClients creates temporary clients for tool discovery
+// Hardcoded for now, will be replaced with a more dynamic approach
 func (g *MCPHelper) initializeStartupClients() error {
 	// Initialize startup server1 client
 	log.Printf("Creating startup connection to server1 at %s...", server1URL)
@@ -399,41 +401,42 @@ func (g *MCPHelper) initializeStartupClients() error {
 }
 
 // aggregateTools fetches and aggregates tools from both backend servers using startup clients
+// Server configurations for tool aggregation
+type serverConfig struct {
+	name   string
+	prefix string
+	client *client.Client
+}
+
 func (g *MCPHelper) aggregateTools() error {
 	log.Println("Aggregating tools from backend servers using startup clients...")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
+	// Define server configurations
+	servers := []serverConfig{
+		{name: "server1", prefix: "server1-", client: g.startupServer1Client},
+		{name: "server2", prefix: "server2-", client: g.startupServer2Client},
+	}
+
 	var allTools []mcp.Tool
 
-	// Get tools from server1 using startup client
-	server1Tools, err := g.startupServer1Client.ListTools(ctx, mcp.ListToolsRequest{})
-	if err != nil {
-		return fmt.Errorf("failed to list tools from server1: %w", err)
-	}
+	// Process each server
+	for _, server := range servers {
+		tools, err := server.client.ListTools(ctx, mcp.ListToolsRequest{})
+		if err != nil {
+			return fmt.Errorf("failed to list tools from %s: %w", server.name, err)
+		}
 
-	// Prefix server1 tools
-	for _, tool := range server1Tools.Tools {
-		prefixedTool := tool
-		prefixedTool.Name = "server1-" + tool.Name
-		allTools = append(allTools, prefixedTool)
+		// Prefix tools from this server
+		for _, tool := range tools.Tools {
+			prefixedTool := tool
+			prefixedTool.Name = server.prefix + tool.Name
+			allTools = append(allTools, prefixedTool)
+		}
+		log.Printf("%s contributed %d tools", server.name, len(tools.Tools))
 	}
-	log.Printf("Server1 contributed %d tools", len(server1Tools.Tools))
-
-	// Get tools from server2 using startup client
-	server2Tools, err := g.startupServer2Client.ListTools(ctx, mcp.ListToolsRequest{})
-	if err != nil {
-		return fmt.Errorf("failed to list tools from server2: %w", err)
-	}
-
-	// Prefix server2 tools
-	for _, tool := range server2Tools.Tools {
-		prefixedTool := tool
-		prefixedTool.Name = "server2-" + tool.Name
-		allTools = append(allTools, prefixedTool)
-	}
-	log.Printf("Server2 contributed %d tools", len(server2Tools.Tools))
 
 	// Store aggregated tools
 	g.toolsLock.Lock()
