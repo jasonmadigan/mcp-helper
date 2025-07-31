@@ -55,8 +55,8 @@ type SessionMapping struct {
 	CreatedAt        time.Time
 }
 
-// MCPGateway represents the main MCP server that acts as both server and client
-type MCPGateway struct {
+// MCPHelper represents the main MCP server that acts as both server and client
+type MCPHelper struct {
 	// Server side
 	mcpServer *server.MCPServer
 
@@ -81,9 +81,9 @@ func main() {
 	var port = flag.String("port", "8080", "Port to listen on")
 	flag.Parse()
 
-	log.Println("Starting MCP Gateway...")
+	log.Println("Starting MCP Helper...")
 
-	gateway := NewMCPGateway()
+	gateway := NewMCPHelper()
 
 	// Initialize backend connections and aggregate tools
 	if err := gateway.initializeBackends(); err != nil {
@@ -94,9 +94,9 @@ func main() {
 	var gracefulStop = make(chan os.Signal, 1)
 	signal.Notify(gracefulStop, syscall.SIGTERM, syscall.SIGINT)
 
-	// Start the HTTP MCP Gateway server in a goroutine
+	// Start the HTTP MCP Helper server in a goroutine
 	go func() {
-		log.Printf("MCP Gateway listening on port %s", *port)
+		log.Printf("MCP Helper listening on port %s", *port)
 		log.Printf("MCP endpoint: http://localhost:%s", *port)
 		log.Printf("Backend servers: %s, %s", server1URL, server2URL)
 
@@ -151,7 +151,7 @@ func main() {
 }
 
 // loggingMiddleware adds comprehensive logging for all HTTP requests
-func (g *MCPGateway) loggingMiddleware(next http.Handler) http.Handler {
+func (g *MCPHelper) loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Log all headers for debugging
 		log.Printf("=== GATEWAY REQUEST ===")
@@ -190,7 +190,7 @@ func (g *MCPGateway) loggingMiddleware(next http.Handler) http.Handler {
 // sessionCapturingWriter wraps http.ResponseWriter to capture session IDs from initialize responses
 type sessionCapturingWriter struct {
 	http.ResponseWriter
-	gateway *MCPGateway
+	gateway *MCPHelper
 }
 
 func (w *sessionCapturingWriter) Header() http.Header {
@@ -219,9 +219,9 @@ func (w *sessionCapturingWriter) WriteHeader(statusCode int) {
 	w.ResponseWriter.WriteHeader(statusCode)
 }
 
-// NewMCPGateway creates a new MCP Gateway instance
-func NewMCPGateway() *MCPGateway {
-	gateway := &MCPGateway{
+// NewMCPHelper creates a new MCP Helper instance
+func NewMCPHelper() *MCPHelper {
+	gateway := &MCPHelper{
 		aggregatedTools:   make([]mcp.Tool, 0),
 		clientConnections: make(map[string]*ClientBackendConnections),
 		sessionMappings:   make(map[string]*SessionMapping),
@@ -229,7 +229,7 @@ func NewMCPGateway() *MCPGateway {
 
 	// Create MCP server with tool capabilities
 	gateway.mcpServer = server.NewMCPServer(
-		"MCP Gateway",
+		"MCP Helper",
 		"1.0.0",
 		server.WithToolCapabilities(true),
 	)
@@ -241,15 +241,15 @@ func NewMCPGateway() *MCPGateway {
 }
 
 // setupHandlers configures the MCP server handlers
-func (g *MCPGateway) setupHandlers() {
+func (g *MCPHelper) setupHandlers() {
 	// Gateway info tool
 	g.mcpServer.AddTool(mcp.NewTool("gateway_info",
-		mcp.WithDescription("Get information about the MCP Gateway"),
+		mcp.WithDescription("Get information about the MCP Helper"),
 	), g.handleGatewayInfo)
 }
 
 // handleInitialization creates backend sessions when a client initializes
-func (g *MCPGateway) handleInitialization(ctx context.Context, gatewaySessionID string) error {
+func (g *MCPHelper) handleInitialization(ctx context.Context, gatewaySessionID string) error {
 	log.Printf("🆕 Creating backend sessions for gateway session: %s", gatewaySessionID)
 
 	// Create backend connections
@@ -277,7 +277,7 @@ func (g *MCPGateway) handleInitialization(ctx context.Context, gatewaySessionID 
 }
 
 // createBackendConnectionsForSession creates and initializes backend connections
-func (g *MCPGateway) createBackendConnectionsForSession(ctx context.Context, gatewaySessionID string) (*ClientBackendConnections, error) {
+func (g *MCPHelper) createBackendConnectionsForSession(ctx context.Context, gatewaySessionID string) (*ClientBackendConnections, error) {
 	log.Printf("🔗 Creating backend connections for session: %s", gatewaySessionID)
 
 	connections := &ClientBackendConnections{
@@ -310,7 +310,7 @@ func (g *MCPGateway) createBackendConnectionsForSession(ctx context.Context, gat
 }
 
 // GetSessionMapping returns the session mapping for a gateway session ID (implements SessionMapper interface)
-func (g *MCPGateway) GetSessionMapping(gatewaySessionID string) (*handlers.SessionMapping, bool) {
+func (g *MCPHelper) GetSessionMapping(gatewaySessionID string) (*handlers.SessionMapping, bool) {
 	g.sessionLock.RLock()
 	defer g.sessionLock.RUnlock()
 
@@ -328,7 +328,7 @@ func (g *MCPGateway) GetSessionMapping(gatewaySessionID string) (*handlers.Sessi
 }
 
 // initializeBackends connects to backend servers for initial tool discovery only
-func (g *MCPGateway) initializeBackends() error {
+func (g *MCPHelper) initializeBackends() error {
 	log.Println("Initializing backend server connections for tool discovery...")
 
 	// Initialize startup clients (these will be discarded after tool discovery)
@@ -347,7 +347,7 @@ func (g *MCPGateway) initializeBackends() error {
 }
 
 // initializeStartupClients creates temporary clients for tool discovery
-func (g *MCPGateway) initializeStartupClients() error {
+func (g *MCPHelper) initializeStartupClients() error {
 	// Initialize startup server1 client
 	log.Printf("Creating startup connection to server1 at %s...", server1URL)
 	httpTransport1, err := transport.NewStreamableHTTP(server1URL)
@@ -362,7 +362,7 @@ func (g *MCPGateway) initializeStartupClients() error {
 	initRequest1 := mcp.InitializeRequest{}
 	initRequest1.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
 	initRequest1.Params.ClientInfo = mcp.Implementation{
-		Name:    "MCP Gateway (Startup)",
+		Name:    "MCP Helper (Startup)",
 		Version: "1.0.0",
 	}
 	initRequest1.Params.Capabilities = mcp.ClientCapabilities{}
@@ -384,7 +384,7 @@ func (g *MCPGateway) initializeStartupClients() error {
 	initRequest2 := mcp.InitializeRequest{}
 	initRequest2.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
 	initRequest2.Params.ClientInfo = mcp.Implementation{
-		Name:    "MCP Gateway (Startup)",
+		Name:    "MCP Helper (Startup)",
 		Version: "1.0.0",
 	}
 	initRequest2.Params.Capabilities = mcp.ClientCapabilities{}
@@ -399,7 +399,7 @@ func (g *MCPGateway) initializeStartupClients() error {
 }
 
 // aggregateTools fetches and aggregates tools from both backend servers using startup clients
-func (g *MCPGateway) aggregateTools() error {
+func (g *MCPHelper) aggregateTools() error {
 	log.Println("Aggregating tools from backend servers using startup clients...")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -447,7 +447,7 @@ func (g *MCPGateway) aggregateTools() error {
 }
 
 // registerAggregatedTools registers all aggregated tools with the MCP server
-func (g *MCPGateway) registerAggregatedTools() {
+func (g *MCPHelper) registerAggregatedTools() {
 	g.toolsLock.RLock()
 	defer g.toolsLock.RUnlock()
 
@@ -462,13 +462,13 @@ func (g *MCPGateway) registerAggregatedTools() {
 	log.Printf("Registered %d aggregated tools with MCP server", len(g.aggregatedTools))
 }
 
-func (g *MCPGateway) routeToolCall(_ context.Context, toolName string, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func (g *MCPHelper) routeToolCall(_ context.Context, toolName string, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	log.Printf("❌ Tool call reached gateway unexpectedly: %s (should be routed by Envoy)", toolName)
 	return mcp.NewToolResultError(fmt.Sprintf("Tool call %s reached gateway - this should be handled by Envoy routing", toolName)), nil
 }
 
 // createClientBackendConnection creates and initializes a client connection to a backend server
-func (g *MCPGateway) createClientBackendConnection(ctx context.Context, clientSessionID string, serverName string, serverURL string) (*client.Client, string, error) {
+func (g *MCPHelper) createClientBackendConnection(ctx context.Context, clientSessionID string, serverName string, serverURL string) (*client.Client, string, error) {
 	log.Printf("🔗 Creating dedicated %s connection for client %s", serverName, clientSessionID)
 
 	// Create HTTP transport
@@ -488,7 +488,7 @@ func (g *MCPGateway) createClientBackendConnection(ctx context.Context, clientSe
 	initRequest := mcp.InitializeRequest{}
 	initRequest.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
 	initRequest.Params.ClientInfo = mcp.Implementation{
-		Name:    fmt.Sprintf("MCP Gateway (Client %s)", clientSessionID),
+		Name:    fmt.Sprintf("MCP Helper (Client %s)", clientSessionID),
 		Version: "1.0.0",
 	}
 	initRequest.Params.Capabilities = mcp.ClientCapabilities{}
@@ -511,7 +511,7 @@ func (g *MCPGateway) createClientBackendConnection(ctx context.Context, clientSe
 }
 
 // handleGatewayInfo handles the gateway_info tool
-func (g *MCPGateway) handleGatewayInfo(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func (g *MCPHelper) handleGatewayInfo(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	g.toolsLock.RLock()
 	toolCount := len(g.aggregatedTools)
 	g.toolsLock.RUnlock()
@@ -521,7 +521,7 @@ func (g *MCPGateway) handleGatewayInfo(ctx context.Context, req mcp.CallToolRequ
 	g.connectionsLock.RUnlock()
 
 	info := map[string]interface{}{
-		"gateway_name":       "MCP Gateway",
+		"gateway_name":       "MCP Helper",
 		"version":            "1.0.0",
 		"backend_servers":    []string{server1URL, server2URL},
 		"aggregated_tools":   toolCount,

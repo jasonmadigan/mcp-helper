@@ -9,12 +9,12 @@ services:
       - "9901:9901"  # Admin interface
     volumes:
       - ./envoy.yaml:/etc/envoy/envoy.yaml:ro
-    command: ["envoy", "-c", "/etc/envoy/envoy.yaml", "--log-level", "debug"]
+    command: ["envoy", "-c", "/etc/envoy/envoy.yaml", "--log-level", "info"]
     depends_on:
-      - gateway
+      - mcp_helper
 
-  gateway:
-    container_name: gateway
+  mcp_helper:
+    container_name: mcp_helper
     build: .
     image: quay.io/dmartin/mcp-gateway-poc
     environment:

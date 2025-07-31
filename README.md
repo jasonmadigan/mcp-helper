@@ -1,6 +1,6 @@
-# MCP Gateway PoC
+# MCP Helper PoC
 
-MCP Gateway with Go Envoy external processor.
+MCP Helper with Go Envoy external processor.
 
 ## Run
 

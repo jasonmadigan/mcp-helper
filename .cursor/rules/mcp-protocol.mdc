@@ -1,3 +1,72 @@
+---
+alwaysApply: false
+---
+
+
+# MCP Protocol Development
+
+## Framework
+- **Library**: mcp-go v0.32.0
+- **Transport**: HTTP with streamable HTTP MCP protocol (not SSE)
+- **Protocol Version**: Use `mcp.LATEST_PROTOCOL_VERSION`
+
+## Key Patterns
+
+### Server Setup
+```go
+mcpServer := server.NewMCPServer(
+    "Server Name",
+    "1.0.0",
+    server.WithToolCapabilities(true),
+)
+
+// Use streamable HTTP server
+streamableServer := server.NewStreamableHTTPServer(mcpServer)
+```
+
+### Tool Registration
+```go
+// Tool handlers must match this signature
+func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error)
+
+// Tool definition
+s.AddTool(mcp.NewTool("tool_name",
+    mcp.WithDescription("Tool description"),
+    mcp.WithString("param_name", 
+        mcp.Description("Parameter description"), 
+        mcp.Required()),
+), handleToolFunction)
+```
+
+### Session Management
+```go
+// Extract session from context
+session := server.ClientSessionFromContext(ctx)
+if session == nil {
+    return mcp.NewToolResultError("No active session"), nil
+}
+clientSessionID := session.SessionID()
+```
+
+### Client Connections  
+```go
+// Create HTTP transport
+httpTransport, err := transport.NewStreamableHTTP(serverURL)
+client := client.NewClient(httpTransport)
+
+// Initialize
+initRequest := mcp.InitializeRequest{}
+initRequest.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
+initRequest.Params.ClientInfo = mcp.Implementation{
+    Name:    "Client Name",
+    Version: "1.0.0",
+}
+serverInfo, err := client.Initialize(ctx, initRequest)
+```
+
+## Environment Configuration
+- Use `getEnv(key, defaultValue)` helper
+- Support `SERVER1_URL`, `SERVER2_URL` environment variables
 
 # MCP Protocol Development
 
