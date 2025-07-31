@@ -12,7 +12,7 @@ services:
     command: ["envoy", "-c", "/etc/envoy/envoy.yaml", "--log-level", "info"]
     depends_on:
       - mcp_helper
-
+    tty: true
   mcp_helper:
     container_name: mcp_helper
     build: .
@@ -23,13 +23,19 @@ services:
     depends_on:
       - server1
       - server2
+    ports:
+      - "50051:50051"  # Direct connection (for debugging only)
 
   server1:
     container_name: server1
     build: ./server1
     image: quay.io/dmartin/mcp-helper-server1
+    ports:
+      - "8081:8081"  # Direct connection (for debugging only)
 
   server2:
     container_name: server2
     build: ./server2
-    image: quay.io/dmartin/mcp-helper-server2 
+    image: quay.io/dmartin/mcp-helper-server2
+    ports:
+      - "8082:8082"  # Direct connection (for debugging only)
