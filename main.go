@@ -49,7 +49,7 @@ type ClientBackendConnections struct {
 
 // SessionMapping holds the mapping between helper session and backend sessions
 type SessionMapping struct {
-	helperSessionID  string
+	HelperSessionID  string
 	Server1SessionID string
 	Server2SessionID string
 	CreatedAt        time.Time
@@ -260,7 +260,7 @@ func (h *MCPHelper) handleInitialization(ctx context.Context, helperSessionID st
 
 	// Store session mapping
 	mapping := &SessionMapping{
-		helperSessionID:  helperSessionID,
+		HelperSessionID:  helperSessionID,
 		Server1SessionID: connections.Server1SessionID,
 		Server2SessionID: connections.Server2SessionID,
 		CreatedAt:        time.Now(),
@@ -321,7 +321,7 @@ func (g *MCPHelper) GetSessionMapping(helperSessionID string) (*extProc.SessionM
 
 	// Convert to extProc.SessionMapping
 	return &extProc.SessionMapping{
-		HelperSessionID:  mapping.helperSessionID,
+		HelperSessionID:  mapping.HelperSessionID,
 		Server1SessionID: mapping.Server1SessionID,
 		Server2SessionID: mapping.Server2SessionID,
 	}, true
